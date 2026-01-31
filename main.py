@@ -7,14 +7,17 @@ from pyrogram import Client, filters, enums
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from pyrogram.errors import FloodWait, UserNotParticipant
 
-# --- CONFIGURATION (বটের পরিচয় ও এপিআই) ---
-# ডেভেলপার: DX-CODEX | বটের নাম: NIKO
+# --- [ CONFIGURATION & IDENTITY ] ---
+# AI Name: NIKO | Dev: DX-CODEX
 API_ID = 20579940
 API_HASH = "6fc0ea1c8dacae05751591adedc177d7"
 BOT_TOKEN = "7853734473:AAHdGjbtPFWD6wFlyu8KRWteRg_961WGRJk"
 RENDER_URL = "https://coin-bot-wp.onrender.com" 
 
-# --- ASSETS (আপনার সব ফন্ট ও ইমোজি সিস্টেম) ---
+# Special Access: Ekhon theke ei ID-r user admin na thakleo bot full control korte parbe
+OWNER_ID = 6703335929 
+
+# --- [ ASSETS & STYLING ] ---
 FONT_MAP = {
     'A':'ᴀ','B':'ʙ','C':'ᴄ','D':'ᴅ','E':'ᴇ','F':'ғ','G':'ɢ','H':'ʜ','I':'ɪ','J':'ᴊ',
     'K':'ᴋ','L':'ʟ','M':'ᴍ','N':'ɴ','O':'ᴏ','P':'ᴘ','Q':'ǫ','R':'ʀ','S':'s','T':'ᴛ',
@@ -32,151 +35,142 @@ EMOJIS = [
 ]
 
 def stylish(text):
-    """টেক্সটকে স্টাইলিশ ফন্টে রূপান্তর করার আপনার অরিজিনাল ফাংশন"""
+    """Text to Small-Caps Conversion Algorithm"""
     return "".join(FONT_MAP.get(c.upper(), c) for c in text)
 
-# --- CLIENT SETUP ---
-app = Client("NikoBot_Final", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN, parse_mode=enums.ParseMode.HTML)
+# --- [ INITIALIZING CLIENTS ] ---
+app = Client("NikoBot_Pro", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN, parse_mode=enums.ParseMode.HTML)
 web_app = Flask(__name__)
 
-# --- WEB SERVER (বট অনলাইনে রাখার সিস্টেম) ---
+# --- [ WEB INFRASTRUCTURE ] ---
 @web_app.route('/')
 def home():
-    return "NIKO BOT IS ONLINE & PROTECTED"
+    return "NIKO BOT V3 IS ACTIVE | POWERED BY DX-CODEX"
 
 def run_web():
     web_app.run(host="0.0.0.0", port=8080)
 
-# --- KEEP ALIVE SYSTEM ---
 async def keep_alive_ping():
+    """Anti-Sleep Algorithm for Render Deployment"""
     async with httpx.AsyncClient() as client:
         while True:
             try:
                 if RENDER_URL:
-                    await client.get(RENDER_URL, timeout=10)
-            except Exception:
-                pass
+                    await client.get(RENDER_URL, timeout=15)
+            except Exception: pass
             await asyncio.sleep(300) 
 
-# --- GLOBAL VARS ---
+# --- [ ADVANCED LOGIC & FILTERS ] ---
 tagging_processes = {}
 
-# --- HELPER FUNCTIONS (অ্যাডমিন চেক করার সঠিক লজিক) ---
-async def is_admin(client, chat_id, user_id):
-    """এটি চেক করবে ইউজার গ্রুপের মালিক বা অ্যাডমিন কি না"""
+async def has_permission(client, chat_id, user_id):
+    """
+    Algorithm: Multi-layer Permission Check
+    1. Check if user is the Hardcoded OWNER_ID.
+    2. Check if user is the Group Creator (Owner).
+    3. Check if user is an Administrator.
+    """
+    if user_id == OWNER_ID:
+        return True
     try:
         member = await client.get_chat_member(chat_id, user_id)
-        # মেম্বার যদি অ্যাডমিন বা ওনার হয় তবেই True রিটার্ন করবে
         return member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
     except Exception:
         return False
 
-# --- MAIN COMMANDS ---
+# --- [ CORE FEATURES ] ---
 
-# ১. ADVANCED TAGALL (অ্যাডমিন ছাড়া কেউ কাজ করতে পারবে না)
+# 1. ENHANCED TAGALL (Only for Admin & Owner)
 @app.on_message(filters.command(["tagall", "all"]) & filters.group)
 async def tag_all_handler(client, message: Message):
     chat_id = message.chat.id
-    user_id = message.from_user.id
+    user_id = message.from_user.id if message.from_user else None
     
-    # অ্যাডমিন চেক (অ্যাডমিন না হলে মেসেজ দিয়ে থামিয়ে দিবে)
-    if not await is_admin(client, chat_id, user_id):
-        return await message.reply(f"🚫 <b>{stylish('Only Admins Can Use This!')}</b>")
+    if not user_id or not await has_permission(client, chat_id, user_id):
+        return await message.reply(f"🚫 <b>{stylish('Unauthorized Access!')}</b>\n<blockquote>Only Admins or NIKO Owner can use this.</blockquote>")
 
-    # যদি ওই গ্রুপে অলরেডি ট্যাগ চলতে থাকে
     if tagging_processes.get(chat_id):
-        return await message.reply(f"⚠️ <b>{stylish('Tagging is already running...')}</b>")
+        return await message.reply(f"⚠️ <b>{stylish('A process is already running in this group.')}</b>")
 
+    input_text = message.text.split(None, 1)[1] if len(message.command) > 1 else "Attention Everyone!"
     tagging_processes[chat_id] = True
-    input_text = message.text.split(None, 1)[1] if len(message.command) > 1 else "Hᴇʟʟᴏ Eᴠᴇʀʏᴏɴᴇ"
     
-    # মেম্বারদের স্ক্যান করার মেসেজ
-    status_msg = await message.reply(f"🔄 <b>{stylish('Processing Members...')}</b>")
+    status_msg = await message.reply(f"🔍 <b>{stylish('Indexing members... Please wait.')}</b>")
     
-    members_list = []
-    # গ্রুপের মেম্বারদের লিস্টে নিচ্ছে (বট ছাড়া)
+    # Algorithm: High-speed member scraping
+    members = []
     async for member in client.get_chat_members(chat_id):
         if not member.user.is_bot and not member.user.is_deleted:
-            members_list.append(member.user)
+            members.append(member.user)
     
-    # আপনার অরিজিনাল র্যান্ডম শাফল সিস্টেম
-    random.shuffle(members_list)
+    random.shuffle(members)
+    await status_msg.edit(f"🚀 <b>{stylish(f'Total {len(members)} members found. Tagging started...')}</b>")
     
-    await status_msg.edit(f"✅ <b>{stylish(f'Found {len(members_list)} Members. Starting...')}</b>")
-    
-    # ব্যাচ ট্যাগিং এবং স্টপ বাটন
-    batch_size = 5
     stop_btn = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 STOP TAGGING", callback_data="stop_tagging")]])
 
-    for i in range(0, len(members_list), batch_size):
+    # Algorithm: Batch Processing (5 tags per message for stability)
+    for i in range(0, len(members), 5):
         if not tagging_processes.get(chat_id):
             break
             
-        batch = members_list[i:i + batch_size]
-        
-        # আপনার অরিজিনাল সুন্দর ডিজাইন লজিক
-        msg_content = f"<b>┏━━「 {stylish(input_text)} 」━━┓</b>\n"
-        
+        batch = members[i:i + 5]
+        output = f"<b>┏━━「 {stylish(input_text)} 」━━┓</b>\n"
         for user in batch:
-            emoji = random.choice(EMOJIS) # আপনার ইমোজি লিস্ট থেকে র্যান্ডম ইমোজি
-            msg_content += f"<b>┃ {emoji} <a href='tg://user?id={user.id}'>{user.first_name}</a></b>\n"
-            
-        msg_content += f"<b>┗━━━━━━━━━━━━━━┛</b>\n"
-        msg_content += f"<blockquote>👾 {stylish('Dev-By: Dx-Codex')} | 🤖 {stylish('Name: Niko')}</blockquote>"
+            emoji = random.choice(EMOJIS)
+            output += f"<b>┃ {emoji} <a href='tg://user?id={user.id}'>{user.first_name}</a></b>\n"
+        output += f"<b>┗━━━━━━━━━━━━━━┛</b>\n"
+        output += f"<blockquote>🤖 {stylish('DEV-BY: DX-CODEX')} | 👑 {stylish('Dev: Dx-Codex')}</blockquote>"
 
         try:
-            await client.send_message(chat_id, msg_content, reply_markup=stop_btn)
-            await asyncio.sleep(2) # ফ্লাডওয়েট থেকে বাঁচার জন্য ২ সেকেন্ড গ্যাপ
+            await client.send_message(chat_id, output, reply_markup=stop_btn)
+            await asyncio.sleep(2.5) # Dynamic Sleep for Flood protection
         except FloodWait as e:
-            await asyncio.sleep(e.value + 2)
-        except Exception:
-            pass
+            await asyncio.sleep(e.value + 5)
+        except Exception: pass
 
     tagging_processes[chat_id] = False
-    await message.reply(f"✅ <b>{stylish('Tagging Finished!')}</b>")
+    await message.reply(f"✅ <b>{stylish('Tagging mission successful!')}</b>")
 
-# ২. STOP SYSTEM (কলব্যাক বাটন শুধুমাত্র অ্যাডমিনের জন্য)
+# 2. ADVANCED CALLBACK (Admin & Owner Restricted)
 @app.on_callback_query(filters.regex("stop_tagging"))
-async def stop_tagging(client, callback: CallbackQuery):
-    chat_id = callback.message.chat.id
-    # কলব্যাক বাটন যে চেপেছে সে অ্যাডমিন কি না চেক
-    if await is_admin(client, chat_id, callback.from_user.id):
-        tagging_processes[chat_id] = False
-        await callback.answer("🛑 Stopping...", show_alert=False)
+async def stop_tagging_callback(client, callback: CallbackQuery):
+    if await has_permission(client, callback.message.chat.id, callback.from_user.id):
+        tagging_processes[callback.message.chat.id] = False
+        await callback.answer("Stopping process...", show_alert=False)
         await callback.message.edit_reply_markup(None)
-        await callback.message.reply(f"🛑 <b>{stylish('Tagging Stopped Successfully!')}</b>")
+        await callback.message.reply(f"🛑 <b>{stylish('Tagging stopped by Authority.')}</b>")
     else:
-        await callback.answer("❌ Admin Only!", show_alert=True)
+        await callback.answer("🚫 You don't have permission to stop this!", show_alert=True)
 
-# ৩. SMART VC FILTER (অরিজিনাল লজিক অক্ষুণ্ণ)
-@app.on_message(filters.group & filters.bot)
-async def vc_link_checker(client, message: Message):
+# 3. PRO VC FILTER (Auto-Delete Music Links if VC is off)
+@app.on_message(filters.group & ~filters.service)
+async def smart_filter(client, message: Message):
     if not message.text: return
+    trigger_words = ["http", "t.me", "youtube", "spotify"]
     
-    if "http" in message.text.lower() or "t.me" in message.text.lower():
+    if any(word in message.text.lower() for word in trigger_words):
         try:
-            chat = await client.get_chat(message.chat.id)
-            if not chat.video_chat: # যদি ভয়েস চ্যাট অন না থাকে
+            chat_info = await client.get_chat(message.chat.id)
+            if not chat_info.video_chat:
                 await message.delete()
-                alert = await message.reply(
-                    f"🔇 <b>{stylish('VC is OFF. Music Links are not allowed!')}</b>"
-                )
+                warning = await message.reply(f"⚠️ <b>{stylish('Music links not allowed when VC is closed!')}</b>")
                 await asyncio.sleep(5)
-                await alert.delete()
-        except Exception:
-            pass
+                await warning.delete()
+        except Exception: pass
 
-# ৪. SERVICE MSG REMOVER (অরিজিনাল লজিক)
+# 4. UNIVERSAL SERVICE CLEANER
 @app.on_message(filters.service)
-async def clean_service(client, message):
+async def service_cleaner(client, message: Message):
+    """Removes all join/leave/pin/photo-change service alerts"""
     try:
         await message.delete()
-    except:
-        pass
+    except: pass
 
-# --- STARTUP ---
-async def start_bot():
-    print("💎 NIKO BOT V3 (ADVANCED) STARTED")
+# --- [ EXECUTION ] ---
+async def boot_niko():
+    print("---------------------------------------")
+    print("💎 NIKO BOT V3 PRO BY DX-CODEX IS BOOTING")
+    print("---------------------------------------")
     asyncio.create_task(keep_alive_ping())
     await app.start()
     from pyrogram import idle
@@ -184,6 +178,5 @@ async def start_bot():
     await app.stop()
 
 if __name__ == "__main__":
-    # ওয়েব সার্ভার আলাদা থ্রেডে চালানো হচ্ছে
     Thread(target=run_web, daemon=True).start()
-    asyncio.run(start_bot())
+    asyncio.run(boot_niko())
