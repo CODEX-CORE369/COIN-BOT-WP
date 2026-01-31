@@ -11,7 +11,7 @@ from pyrogram.errors import FloodWait
 API_ID = 20579940
 API_HASH = "6fc0ea1c8dacae05751591adedc177d7"
 BOT_TOKEN = "7853734473:AAHdGjbtPFWD6wFlyu8KRWteRg_961WGRJk"
-RENDER_URL = "https://your-app-name.onrender.com" 
+RENDER_URL = "https://coin-bot-wp.onrender.com" 
 
 # --- FONT & TOOLS ---
 FONT_MAP = {'A':'ᴀ','B':'ʙ','C':'ᴄ','D':'ᴅ','E':'ᴇ','F':'ғ','G':'ɢ','H':'ʜ','I':'ɪ','J':'ᴊ','K':'ᴋ','L':'ʟ','M':'ᴍ','N':'ɴ','O':'ᴏ','P':'ᴘ','Q':'ǫ','R':'ʀ','S':'s','T':'ᴛ','U':'ᴜ','V':'ᴠ','W':'ᴡ','X':'x','Y':'ʏ','Z':'ᴢ'}
