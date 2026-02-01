@@ -121,11 +121,13 @@ async def tag_all_users(client, message: Message):
         # HTML Design
         output = f"<b>┏━━━「 🍒 {stylish('DARK-BOT')} 」━━━┓</b>\n"
         output += f"<b>┃ 🔔 {stylish(input_text)}</b>\n"
+        output += f"<b>┗━━━━━━━━━━━━━━━━━━━━━━━┛</b>\n"
+        output += f"<b>┃</b>\n"
         for user in batch:
             emoji = random.choice(EMOJIS)
             output += f"<b>┃ {emoji} <a href='tg://user?id={user.id}'>{user.first_name}</a></b>\n"
         output += f"<b>┃</b>\n"
-        output += f"<b>┗━━━━「 🤖 {stylish('DX-CODEX')} 」━━━┛</b>"
+        output += f"<b>┗━━━「 🤖 {stylish('DX-CODEX')} 」━━━┛</b>"
         
         try:
             await client.send_message(chat_id, output)
