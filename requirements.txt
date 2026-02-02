@@ -1,4 +1,6 @@
 pyrogram
 tgcrypto
-Flask
+motor
+dnspython
+flask
 requests
