@@ -192,40 +192,61 @@ async def vc_ended_handler(client, message: Message):
 # --- [ 4. ADVANCED LINK GUARD ] ---
 @app.on_message(filters.regex(r"(https?://|www\.|t\.me/)") & filters.group)
 async def link_monitor(client, message: Message):
+async def link_monitor(client, message: Message):
     chat_id = message.chat.id
     user_id = message.from_user.id
     
-    if user_id == OWNER_ID: return
+    # 1. OWNER_ID চেক সবার আগে (Performance এর জন্য)
+    if user_id == OWNER_ID:
+        return
 
     try:
+        # মেম্বার স্ট্যাটাস চেক করা
         member = await client.get_chat_member(chat_id, user_id)
         is_admin = member.status in [enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]
         
         should_delete = False
         
         if is_admin:
-            # Check VC Status for Admins/Music Bots
+            # অ্যাডমিন হলে চেক করবে VC অন আছে কিনা
+            # get_chat কল করে লেটেস্ট স্ট্যাটাস নেওয়া হচ্ছে
             chat = await client.get_chat(chat_id)
+            
+            # যদি VC অন না থাকে, তাহলে লিংক ডিলিট হবে
             if not chat.is_video_chat_active:
                 should_delete = True
         else:
-            # Always delete for normal members
+            # নরমাল মেম্বারদের জন্য সব সময় ডিলিট (আপনার সিস্টেম অনুযায়ী)
             should_delete = True
 
         if should_delete:
-            await message.delete()
+            # আগে মেসেজ ডিলিট করার চেষ্টা করবে
+            try:
+                await message.delete()
+            except Exception:
+                # যদি বটের ডিলিট পারমিশন না থাকে বা ইউজার বটের চেয়ে পাওয়ারফুল হয়
+                return 
             
-            # Temporary Warning Message (HTML Format)
+            # ওয়ার্নিং মেসেজ পাঠানো
             warning_msg = await message.reply_text(
                 f"<b>❌ {stylish('Link Removed!')}</b>\n"
-                f"<b>⚠️  {stylish('Voice Chat is OFF. Links are restricted!')}</b>"
+                f"<b>⚠️ {stylish('Voice Chat is OFF. Links are restricted!')}</b>",
+                disable_web_page_preview=True
             )
-            await asyncio.sleep(5)
-            await warning_msg.delete()
+            
+            # ১০ সেকেন্ড অপেক্ষা (আপনার রিকোয়েস্ট অনুযায়ী)
+            await asyncio.sleep(10)
+            
+            # ওয়ার্নিং মেসেজ ডিলিট করা
+            try:
+                await warning_msg.delete()
+            except Exception:
+                pass
             
     except Exception as e:
-        logger.error(f"Link Logic Error: {e}")
-
+        # লগিং এরর (Optional)
+        # logger.error(f"Link Logic Error: {e}")
+        pass
 # --- [ MAIN EXECUTION ] ---
 if __name__ == "__main__":
     print("🔥 DX-BOT Started with Advanced Algorithms!")
