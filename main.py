@@ -112,7 +112,14 @@ flask_app = Flask(__name__)
 def home(): return "🔥 Bot is Running High Performance Mode!"
 
 def run_web_server(): flask_app.run(host="0.0.0.0", port=8080)
-
+def keep_alive():
+    while True:
+        try:
+            # এটি বটকে সচল রাখতে আপনার লিঙ্কে প্রতি ৫ মিনিট অন্তর হিট করবে
+            requests.get(RENDER_URL)
+        except Exception:
+            pass
+        time.sleep(300) # ৩০০ সেকেন্ড বা ৫ মিনিট পর পর চলবে
 # --- [ HELPER FUNCTIONS ] ---
 async def is_owner(user_id):
     return user_id in OWNER_IDS
