@@ -11,26 +11,17 @@ from pyrogram import Client, filters, enums
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from pyrogram.errors import FloodWait, InputUserDeactivated, UserIsBlocked, PeerIdInvalid
 from motor.motor_asyncio import AsyncIOMotorClient
+from collections import defaultdict
 import datetime
 
-def parse_time(time_str):
-    unit = time_str[-1].lower()
-    try:
-        val = int(time_str[:-1])
-        if unit == "m": return datetime.timedelta(minutes=val)
-        if unit == "h": return datetime.timedelta(hours=val)
-        if unit == "d": return datetime.timedelta(days=val)
-    except: return None
-    return None
 # --- [ CONFIGURATION ] ---
 API_ID = 20579940
 API_HASH = "6fc0ea1c8dacae05751591adedc177d7"
 BOT_TOKEN = "7853734473:AAHdGjbtPFWD6wFlyu8KRWteRg_961WGRJk"
 RENDER_URL = "https://coin-bot-wp.onrender.com"
 
-# Multiple Owners (List format)
-OWNER_IDS = [6703335929, 5136260272] # কমা দিয়ে আরও আইডি এড করতে পারবেন
-
+# Multiple Owners
+OWNER_IDS = [6703335929, 5136260272] 
 MONGO_DB_URI = "mongodb+srv://dxsimu:mnbvcxzdx@dxsimu.0qrxmsr.mongodb.net/?appName=dxsimu"
 
 # --- [ LOGGING ] ---
@@ -52,6 +43,17 @@ def stylish(text):
     if not text: return ""
     return "".join(FONT_MAP.get(c.upper(), c) for c in text)
 
+def parse_time(time_str):
+    if not time_str: return None
+    unit = time_str[-1].lower()
+    try:
+        val = int(time_str[:-1])
+        if unit == "m": return datetime.timedelta(minutes=val)
+        if unit == "h": return datetime.timedelta(hours=val)
+        if unit == "d": return datetime.timedelta(days=val)
+    except: return None
+    return None
+
 # --- [ ADVANCED DATABASE ] ---
 class Database:
     def __init__(self, uri, database_name):
@@ -59,9 +61,13 @@ class Database:
         self.db = self._client[database_name]
         self.users = self.db.users
         self.groups = self.db.groups
+        self.warns = self.db.warns
+        self.blocked_words = self.db.blocked_words
+        self.word_violations = self.db.word_violations
+        self.locks = self.db.locks
+        self.welcome_settings = self.db.welcome_settings
 
     async def add_user(self, user):
-        """Saves User ID, First Name, and Username"""
         if not await self.users.find_one({"user_id": user.id}):
             await self.users.insert_one({
                 "user_id": user.id,
@@ -69,14 +75,12 @@ class Database:
                 "username": user.username if user.username else "None"
             })
         else:
-            # Update info if changed
             await self.users.update_one(
                 {"user_id": user.id},
                 {"$set": {"first_name": user.first_name, "username": user.username}}
             )
 
     async def add_group(self, chat):
-        """Saves Chat ID and Title"""
         if not await self.groups.find_one({"chat_id": chat.id}):
             await self.groups.insert_one({
                 "chat_id": chat.id,
@@ -99,6 +103,7 @@ db = Database(MONGO_DB_URI, "DX-SIMU")
 
 # --- [ GLOBAL VARIABLES ] ---
 tagging_status = {} 
+flood_data = defaultdict(list)
 app = Client("my_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 flask_app = Flask(__name__)
 
@@ -107,11 +112,6 @@ flask_app = Flask(__name__)
 def home(): return "🔥 Bot is Running High Performance Mode!"
 
 def run_web_server(): flask_app.run(host="0.0.0.0", port=8080)
-def keep_alive():
-    while True:
-        time.sleep(300)
-        try: requests.get(RENDER_URL)
-        except: pass
 
 # --- [ HELPER FUNCTIONS ] ---
 async def is_owner(user_id):
@@ -125,7 +125,6 @@ async def is_admin(client, chat_id, user_id):
     except: return False
 
 def parse_buttons(text):
-    """Parses [Name | Link] into InlineKeyboardMarkup"""
     if not text: return None, None
     pattern = r"\[([^\]]+?)\|([^\]]+?)\]"
     matches = re.findall(pattern, text)
@@ -141,17 +140,41 @@ def parse_buttons(text):
     if row: buttons.append(row)
     return clean_text, InlineKeyboardMarkup(buttons)
 
+async def get_target_user(client, message: Message):
+    user_id = None
+    reason = "N/A"
+    
+    if message.reply_to_message:
+        user_id = message.reply_to_message.from_user.id
+        if len(message.command) > 1:
+            reason = message.text.split(None, 1)[1]
+            
+    elif len(message.command) > 1:
+        input_str = message.command[1]
+        try:
+            if input_str.startswith("@"):
+                user = await client.get_users(input_str)
+                user_id = user.id
+            else:
+                user_id = int(input_str)
+            
+            if len(message.command) > 2:
+                reason = message.text.split(None, 2)[2]
+        except Exception as e:
+            logger.error(f"Error finding user: {e}")
+            return None, None
+            
+    return user_id, reason
+
 # --- [ 1. ADVANCED START & WELCOME SYSTEM ] ---
 @app.on_message(filters.command("start") & filters.private)
 async def start_handler(client, message: Message):
     user = message.from_user
-    await db.add_user(user) # Save to DB
+    await db.add_user(user) 
     
-    # Permission integer for (All Rights - Anonymous) = 10879683935 (Approx) or just standard admin
-    # Using specific permission parameter for "Add to Group"
     bot_username = (await client.get_me()).username
     add_link = f"https://t.me/{bot_username}?startgroup=true&admin=change_info+delete_messages+restrict_members+invite_users+pin_messages+manage_video_chats+promote_members"
-mention = f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
+    mention = f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
 
     text = f"""
 <b>┏━━━「 {stylish('bot dashboard')} 」━━━┓</b>
@@ -176,7 +199,7 @@ mention = f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
 """
     await message.reply_text(
         text,
-        quote=True, # Reply to sender
+        quote=True,
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton(f"➕ {stylish('add me to group')}", url=add_link)],
             [InlineKeyboardButton(f"📡 {stylish('updates')}", url="https://t.me/CodexCentury")]
@@ -186,10 +209,8 @@ mention = f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
 @app.on_message(filters.new_chat_members)
 async def welcome_handler(client, message: Message):
     for member in message.new_chat_members:
-        # If Bot is added
         if member.id == (await client.get_me()).id:
-            await db.add_group(message.chat) # Save Group to DB
-            
+            await db.add_group(message.chat)
             text = f"""
 <b>┏━━「 {stylish('system active')} 」━━┓</b>
 <b>┃ ┏─「 {stylish('group info')} 」</b>
@@ -213,7 +234,6 @@ async def stats_handler(client, message: Message):
     users_count = await db.count_users()
     groups_count = await db.count_groups()
     
-    # 1. Send Stylish Stats
     stats_text = f"""
 <b>┏━━「 {stylish('database stats')} 」━━┓</b>
 <b>┃ ┏─「 {stylish('overview')} 」</b>
@@ -225,7 +245,6 @@ async def stats_handler(client, message: Message):
     """
     await msg.edit_text(stats_text)
 
-    # 2. Generate .txt File
     output = "--- DX-BOT DATABASE EXPORT ---\n\n"
     output += f"Total Users: {users_count}\n"
     output += f"Total Groups: {groups_count}\n\n"
@@ -238,7 +257,6 @@ async def stats_handler(client, message: Message):
     async for group in await db.get_all_groups():
         output += f"ID: {group['chat_id']} | Title: {group.get('title','N/A')}\n"
 
-    # Create in-memory file
     file = io.BytesIO(output.encode('utf-8'))
     file.name = "database_dump.txt"
     
@@ -274,7 +292,6 @@ async def tag_all(client, message: Message):
         if not tagging_status.get(chat_id): break
         batch = members[i:i + batch_size]
         
-        # Short Border Design
         text = f"<b>┏━━「 {stylish('notification')} 」━━┓</b>\n"
         text += f"<b>┃ 🔔 {stylish(input_text)}</b>\n"
         text += f"<b>┃</b>\n"
@@ -304,10 +321,9 @@ async def link_guard(client, message: Message):
     chat_id = message.chat.id
     user_id = message.from_user.id
     
-    if user_id in OWNER_IDS: return # Owner Bypass
-    
+    if user_id in OWNER_IDS: return 
     try:
-        if await is_admin(client, chat_id, user_id): return # Admin Bypass
+        if await is_admin(client, chat_id, user_id): return
         
         await message.delete()
         warning = await message.reply_text(
@@ -321,15 +337,8 @@ async def link_guard(client, message: Message):
     except: pass
 
 # --- [ WELCOME HELPERS ] ---
-
 def parse_welcome_buttons(text):
-    """
-    Parses [ btn | url ] with row support.
-    Buttons on the same line -> Side by side.
-    Buttons on different lines -> One below another.
-    """
     if not text: return None, None
-    
     lines = text.split('\n')
     keyboard = []
     clean_text_lines = []
@@ -350,18 +359,16 @@ def parse_welcome_buttons(text):
     return clean_text, (InlineKeyboardMarkup(keyboard) if keyboard else None)
 
 async def get_welcome_settings(chat_id):
-    settings = await db.db.welcome_settings.find_one({"chat_id": chat_id})
+    settings = await db.welcome_settings.find_one({"chat_id": chat_id})
     if not settings:
         return {"status": False, "clean": False, "msg": None, "media": None, "type": "text"}
     return settings
 
 async def update_welcome_settings(chat_id, data):
-    await db.db.welcome_settings.update_one(
+    await db.welcome_settings.update_one(
         {"chat_id": chat_id}, {"$set": data}, upsert=True
     )
     
-    # --- [ WELCOME SYSTEM FUNCTIONS ] ---
-
 @app.on_message(filters.command("welcome") & filters.group)
 async def welcome_menu(client, message: Message):
     if not await is_admin(client, message.chat.id, message.from_user.id): return
@@ -374,17 +381,10 @@ async def welcome_menu(client, message: Message):
 <b>┃ ┃ 📝 <code>/setwelcome</code> - {stylish('set message')}</b>
 <b>┃ ┃ 🧹 <code>/cleanwelcome</code> - {stylish('auto delete')}</b>
 <b>┃ ┗───────────╼</b>
-<b>┃</b>
 <b>┃ ┏─「 {stylish('placeholders')} 」</b>
 <b>┃ ┃ 👤 {{mention}} - {stylish('user tag')}</b>
 <b>┃ ┃ 📛 {{full_name}} - {stylish('full name')}</b>
 <b>┃ ┃ 📧 {{username}} - {stylish('username')}</b>
-<b>┃ ┗───────────╼</b>
-<b>┃</b>
-<b>┃ ┏─「 {stylish('how to set')} 」</b>
-<b>┃ ┃ {stylish('send /setwelcome with photo/video/text')}</b>
-<b>┃ ┃ {stylish('use [ btn | url ] for buttons')}</b>
-<b>┃ ┃ {stylish('supports all html tags')}</b>
 <b>┃ ┗───────────╼</b>
 <b>┗━━━━━━━━━━┛</b>
 """
@@ -413,7 +413,6 @@ async def set_welcome(client, message: Message):
     msg_text = target.caption or target.text
     
     if not msg_text or "/setwelcome" in msg_text and not message.reply_to_message:
-        # If user just typed /setwelcome without text/reply
         msg_text = msg_text.replace("/setwelcome", "").strip()
         if not msg_text:
             return await message.reply_text(f"<b>❌ {stylish('please provide text or reply to a message!')}</b>")
@@ -435,8 +434,6 @@ async def set_welcome(client, message: Message):
     })
     await message.reply_text(f"<b>✅ {stylish('new welcome message saved!')}</b>")
 
-# --- [ NEW MEMBER HANDLER ] ---
-
 @app.on_message(filters.new_chat_members)
 async def on_new_member(client, message: Message):
     chat_id = message.chat.id
@@ -445,12 +442,9 @@ async def on_new_member(client, message: Message):
     if not settings.get("status"): return
 
     for member in message.new_chat_members:
-        # If Bot joins
         if member.id == (await client.get_me()).id:
-            await db.add_group(message.chat)
             return
             
-        # Placeholders
         mention = f"<a href='tg://user?id={member.id}'>{member.first_name}</a>"
         full_name = f"{member.first_name} {member.last_name or ''}".strip()
         username = f"@{member.username}" if member.username else full_name
@@ -458,15 +452,12 @@ async def on_new_member(client, message: Message):
         raw_msg = settings.get("msg") or "Welcome {mention}!"
         clean_text, markup = parse_welcome_buttons(raw_msg)
         
-        # Replace placeholders
-        final_text = clean_text.format(mention=mention, full_name=full_name, username=username)
+        final_text = clean_text.replace("{mention}", mention).replace("{full_name}", full_name).replace("{username}", username)
         
-        # Clean Old Message logic
         if settings.get("clean") and "last_msg_id" in settings:
             try: await client.delete_messages(chat_id, settings["last_msg_id"])
             except: pass
 
-        # Send New Welcome
         try:
             m_type = settings.get("type", "text")
             media = settings.get("media")
@@ -478,55 +469,12 @@ async def on_new_member(client, message: Message):
             else:
                 sent = await client.send_message(chat_id, final_text, reply_markup=markup)
             
-            # Save ID for auto-clean
             await update_welcome_settings(chat_id, {"last_msg_id": sent.id})
-            
-            # optional: 5 min auto delete if no one else joins
-            # (Requires background task, but clean-on-new-join is more efficient)
             
         except Exception as e:
             logger.error(f"Welcome Error: {e}")
-            
-async def get_target_user(client, message: Message):
-    """
-    একদম নিখুঁতভাবে টার্গেট ইউজার এবং কারণ (Reason) খুঁজে বের করার অ্যালগরিদম।
-    রিপ্লাই, ইউজারনেম অথবা আইডি—সবই সাপোর্ট করবে।
-    """
-    user_id = None
-    reason = "N/A"
-    
-    # ১. যদি মেসেজটি কোনো ইউজারকে রিপ্লাই করে দেওয়া হয়
-    if message.reply_to_message:
-        user_id = message.reply_to_message.from_user.id
-        # কমান্ডের সাথে কারণ আছে কি না দেখা (উদা: /warn spamming)
-        if len(message.command) > 1:
-            reason = message.text.split(None, 1)[1]
-            
-    # ২. যদি রিপ্লাই না করে সরাসরি আইডি বা ইউজারনেম দেওয়া হয় (উদা: /warn @user spam)
-    elif len(message.command) > 1:
-        input_str = message.command[1]
-        
-        try:
-            # যদি ইউজারনেম দিয়ে ট্যাগ করা হয়
-            if input_str.startswith("@"):
-                user = await client.get_users(input_str)
-                user_id = user.id
-            # যদি সরাসরি আইডি নম্বর দেওয়া হয়
-            else:
-                user_id = int(input_str)
-            
-            # কারণ বা রিজন এক্সট্র্যাক্ট করা (যদি থাকে)
-            if len(message.command) > 2:
-                reason = message.text.split(None, 2)[2]
-                
-        except Exception as e:
-            logger.error(f"Error finding user: {e}")
-            return None, None
-            
-    return user_id, reason
-    
-    # --- [ 1. MUTE & UNMUTE SYSTEM ] ---
 
+# --- [ MODERATION: MUTE & UNMUTE ] ---
 @app.on_message(filters.command("mute") & filters.group)
 async def mute_user(client, message: Message):
     if not await is_admin(client, message.chat.id, message.from_user.id): return
@@ -539,7 +487,6 @@ async def mute_user(client, message: Message):
         return await message.reply_text(f"<b>🛡️ {stylish('safety: cannot mute an admin!')}</b>")
 
     try:
-        # Restricting all permissions
         await client.restrict_chat_member(message.chat.id, user_id, enums.ChatPermissions())
         user = await client.get_users(user_id)
         mention = f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
@@ -575,11 +522,9 @@ async def unmute_command(client, message: Message):
     except Exception as e:
         await message.reply_text(f"<b>❌ {stylish('failed')}:</b> <code>{e}</code>")
 
-# Unmute Button Callback
 @app.on_callback_query(filters.regex(r"unmute_(\d+)"))
 async def unmute_btn_cb(client, cb: CallbackQuery):
     user_id = int(cb.data.split("_")[1])
-    # Check if clicker is admin
     if not await is_admin(client, cb.message.chat.id, cb.from_user.id):
         return await cb.answer("❌ You don't have permission to unmute!", show_alert=True)
     
@@ -588,9 +533,8 @@ async def unmute_btn_cb(client, cb: CallbackQuery):
         await cb.message.edit_text(f"<b>✅ {stylish('user unmuted successfully!')}</b>")
     except Exception as e:
         await cb.answer(f"Error: {e}", show_alert=True)
-        
-        # --- [ 2. PROMOTE & DEMOTE SYSTEM ] ---
 
+# --- [ MODERATION: PROMOTE & DEMOTE ] ---
 @app.on_message(filters.command("promote") & filters.group)
 async def promote_user(client, message: Message):
     if not await is_admin(client, message.chat.id, message.from_user.id): return
@@ -599,7 +543,6 @@ async def promote_user(client, message: Message):
     if not user_id: return
     
     try:
-        # Full Admin Rights (Excluding Promoting other admins for safety)
         await client.promote_chat_member(
             message.chat.id, user_id,
             privileges=enums.ChatPrivileges(
@@ -607,7 +550,7 @@ async def promote_user(client, message: Message):
                 can_delete_messages=True,
                 can_manage_video_chats=True,
                 can_restrict_members=True,
-                can_promote_members=False, # Safety
+                can_promote_members=False,
                 can_change_info=True,
                 can_invite_users=True,
                 can_pin_messages=True
@@ -637,7 +580,6 @@ async def demote_user(client, message: Message):
         return await message.reply_text(f"<b>🚫 {stylish('cannot demote my owner!')}</b>")
 
     try:
-        # Removing all privileges
         await client.promote_chat_member(
             message.chat.id, user_id,
             privileges=enums.ChatPrivileges(
@@ -662,37 +604,23 @@ async def demote_user(client, message: Message):
         await message.reply_text(text)
     except Exception as e:
         await message.reply_text(f"<b>❌ {stylish('demote failed')}:</b> <code>{e}</code>")
-        
 
-# --- [ ADVANCED COMMANDS ] ---
-
+# --- [ ADVANCED ACTIONS ] ---
 @app.on_message(filters.command("rwarn") & filters.group)
 async def reset_warn(client, message: Message):
     if not await is_admin(client, message.chat.id, message.from_user.id): return
     user_id, _ = await get_target_user(client, message)
     if not user_id: return
     
-    await db.db.warns.delete_one({"chat_id": message.chat.id, "user_id": user_id})
+    await db.warns.delete_one({"chat_id": message.chat.id, "user_id": user_id})
     user = await client.get_users(user_id)
     text = f"<b>┏━━「 {stylish('warn reset')} 」━━┓</b>\n<b>┃ 👤 {stylish('user')}: <a href='tg://user?id={user.id}'>{user.first_name}</a></b>\n<b>┃ ✨ {stylish('status')}: {stylish('all warns removed')}</b>\n<b>┗━━━━━━━━━━┛</b>"
-    await message.reply_text(text)
-
-@app.on_message(filters.command("unmute") & filters.group)
-async def unmute_user_cmd(client, message: Message):
-    if not await is_admin(client, message.chat.id, message.from_user.id): return
-    user_id, _ = await get_target_user(client, message)
-    if not user_id: return
-    
-    await client.unban_chat_member(message.chat.id, user_id)
-    user = await client.get_users(user_id)
-    text = f"<b>┏━━「 {stylish('unmuted')} 」━━┓</b>\n<b>┃ 👤 {stylish('user')}: <a href='tg://user?id={user.id}'>{user.first_name}</a></b>\n<b>┃ 🔊 {stylish('access')}: {stylish('restored')}</b>\n<b>┗━━━━━━━━━━┛</b>"
     await message.reply_text(text)
 
 @app.on_message(filters.command("tmute") & filters.group)
 async def temp_mute(client, message: Message):
     if not await is_admin(client, message.chat.id, message.from_user.id): return
     
-    # Logic: /tmute 10m @user reason
     args = message.command
     time_val = "1m"
     reason = "N/A"
@@ -705,6 +633,7 @@ async def temp_mute(client, message: Message):
     if res != "N/A": reason = res
 
     duration = parse_time(time_val)
+    if not duration: return await message.reply_text("<b>❌ Invalid time format! Use 1m, 1h, 1d</b>")
     until_date = datetime.datetime.now() + duration
     
     await client.restrict_chat_member(message.chat.id, user_id, enums.ChatPermissions(), until_date=until_date)
@@ -730,44 +659,42 @@ async def admin_kick(client, message: Message):
     if not user_id: return
     
     await client.ban_chat_member(message.chat.id, user_id)
-    await client.unban_chat_member(message.chat.id, user_id) # Ban + Unban = Kick
+    await client.unban_chat_member(message.chat.id, user_id) 
     user = await client.get_users(user_id)
     text = f"<b>┏━━「 {stylish('kicked')} 」━━┓</b>\n<b>┃ 👤 {stylish('user')}: <a href='tg://user?id={user.id}'>{user.first_name}</a></b>\n<b>┃ 📝 {stylish('reason')}: {stylish(reason)}</b>\n<b>┗━━━━━━━━━━┛</b>"
     await message.reply_text(text)
-    
-    @app.on_message(filters.command("word") & filters.group)
+
+# --- [ WORD BLOCK & FILTER ] ---
+@app.on_message(filters.command("word") & filters.group)
 async def block_word(client, message: Message):
     if not await is_admin(client, message.chat.id, message.from_user.id): return
     if len(message.command) < 2: return
     word = message.text.split(None, 1)[1].lower()
-    await db.db.blocked_words.update_one({"chat_id": message.chat.id}, {"$addToSet": {"words": word}}, upsert=True)
+    await db.blocked_words.update_one({"chat_id": message.chat.id}, {"$addToSet": {"words": word}}, upsert=True)
     await message.reply_text(f"<b>✅ {stylish('word blocked')}: {word}</b>")
 
 @app.on_message(filters.command("words") & filters.group)
 async def list_words(client, message: Message):
-    data = await db.db.blocked_words.find_one({"chat_id": message.chat.id})
+    data = await db.blocked_words.find_one({"chat_id": message.chat.id})
     words = data.get("words", []) if data else []
     if not words: return await message.reply_text(f"<b>📂 {stylish('no blocked words')}</b>")
     await message.reply_text(f"<b>🚫 {stylish('blocked words')}:</b>\n<code>{', '.join(words)}</code>")
 
-# Word filter handler
 @app.on_message(filters.group & ~filters.service, group=1)
 async def word_filter(client, message: Message):
     if not message.text or await is_admin(client, message.chat.id, message.from_user.id): return
-    data = await db.db.blocked_words.find_one({"chat_id": message.chat.id})
+    data = await db.blocked_words.find_one({"chat_id": message.chat.id})
     if not data: return
     
     if any(word in message.text.lower() for word in data.get("words", [])):
         await message.delete()
         user_id = message.from_user.id
         
-        # Count violations
-        v_data = await db.db.word_violations.find_one_and_update(
+        v_data = await db.word_violations.find_one_and_update(
             {"chat_id": message.chat.id, "user_id": user_id},
             {"$inc": {"count": 1}}, upsert=True, return_document=True
         )
         count = v_data["count"]
-        
         mention = f"<a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>"
         
         if count == 10:
@@ -775,10 +702,64 @@ async def word_filter(client, message: Message):
             await message.reply_text(f"<b>┏━━「 {stylish('violation')} 」━━┓\n┃ 👤 {mention}\n┃ 🚫 {stylish('action')}: 1ʜ {stylish('mute')}\n┃ 📝 {stylish('reason')}: {stylish('word limit reached')}\n┗━━━━━━━━━━┛</b>")
         elif count >= 13:
             await client.ban_chat_member(message.chat.id, user_id)
-            await db.db.word_violations.delete_one({"chat_id": message.chat.id, "user_id": user_id})
+            await db.word_violations.delete_one({"chat_id": message.chat.id, "user_id": user_id})
             await message.reply_text(f"<b>┏━━「 {stylish('violation')} 」━━┓\n┃ 👤 {mention}\n┃ 🚫 {stylish('action')}: {stylish('removed')}\n┃ 📝 {stylish('reason')}: {stylish('repeated violations')}\n┗━━━━━━━━━━┛</b>")
 
+# --- [ ANTI-FLOOD & REPORTING (Active Features) ] ---
+@app.on_message(filters.group & ~filters.service & ~filters.me, group=3)
+async def anti_flood_handler(client, message: Message):
+    if not message.from_user or await is_admin(client, message.chat.id, message.from_user.id): return
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    now = time.time()
 
+    flood_data[user_id].append(now)
+    flood_data[user_id] = [t for t in flood_data[user_id] if now - t < 3]
+
+    if len(flood_data[user_id]) > 5: 
+        try:
+            until_date = datetime.datetime.now() + datetime.timedelta(hours=1)
+            await client.restrict_chat_member(chat_id, user_id, enums.ChatPermissions(), until_date=until_date)
+            flood_data[user_id] = []
+            mention = f"<a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>"
+            text = f"""
+<b>┏━━「 {stylish('anti flood')} 」━━┓</b>
+<b>┃ 👤 {stylish('user')}: {mention}</b>
+<b>┃ 🆔 {stylish('id')}: <code>{user_id}</code></b>
+<b>┃ 🚫 {stylish('action')}: 1ʜ {stylish('mute')}</b>
+<b>┃ 📝 {stylish('reason')}: {stylish('spamming detected')}</b>
+<b>┗━━━━━━━━━━┛</b>
+"""
+            await message.reply_text(text)
+            await message.delete()
+        except Exception as e: logger.error(f"Anti-Flood Error: {e}")
+
+@app.on_message(filters.regex(r"(?i)@admin") | filters.command("report") & filters.group)
+async def report_handler(client, message: Message):
+    chat_id = message.chat.id
+    reporter = message.from_user
+    reported_msg = message.reply_to_message
+    
+    admins = []
+    async for m in client.get_chat_members(chat_id, filter=enums.ChatMembersFilter.ADMINISTRATORS):
+        if not m.user.is_bot: admins.append(m.user.id)
+    if not admins: return
+
+    msg_link = f"https://t.me/c/{str(chat_id)[4:]}/{reported_msg.id}" if reported_msg else "N/A"
+    text = f"""
+<b>┏━━「 {stylish('admin alert')} 」━━┓</b>
+<b>┃ ┏─「 {stylish('report info')} 」</b>
+<b>┃ ┃ 👤 {stylish('by')}: {reporter.mention}</b>
+<b>┃ ┃ 🆔 {stylish('id')}: <code>{reporter.id}</code></b>
+<b>┃ ┗───────────╼</b>
+<b>┃ 🚩 {stylish('reported message below')}</b>
+<b>┃ 🔗 <a href='{msg_link}'>{stylish('click to view')}</a></b>
+<b>┗━━━━━━━━━━┛</b>
+"""
+    mention_text = " ".join([f"[\u2063](tg://user?id={admin_id})" for admin_id in admins[:5]])
+    await message.reply_text(f"{text}{mention_text}", disable_web_page_preview=True)
+
+# --- [ LOCK SYSTEM (Complete) ] ---
 LOCK_TYPES = ["url", "sticker", "gif", "photo", "forward", "botlink", "videomessage", "botcommand", "bot"]
 
 @app.on_message(filters.command("lock") & filters.group)
@@ -788,13 +769,13 @@ async def lock_cmd(client, message: Message):
     l_type = message.command[1].lower()
     if l_type not in LOCK_TYPES: return
     
-    await db.db.locks.update_one({"chat_id": message.chat.id}, {"$set": {f"locks.{l_type}": True}}, upsert=True)
+    await db.locks.update_one({"chat_id": message.chat.id}, {"$set": {f"locks.{l_type}": True}}, upsert=True)
     await message.reply_text(f"<b>🔒 {stylish(l_type)} {stylish('is now locked')}</b>")
 
 @app.on_message(filters.command("unlock") & filters.group)
 async def unlock_menu(client, message: Message):
     if not await is_admin(client, message.chat.id, message.from_user.id): return
-    data = await db.db.locks.find_one({"chat_id": message.chat.id})
+    data = await db.locks.find_one({"chat_id": message.chat.id})
     locks = data.get("locks", {}) if data else {}
     
     buttons = []
@@ -808,22 +789,26 @@ async def unlock_menu(client, message: Message):
 async def unlck_cb(client, cb: CallbackQuery):
     if not await is_admin(client, cb.message.chat.id, cb.from_user.id): return
     l_type = cb.data.split("_")[1]
-    await db.db.locks.update_one({"chat_id": cb.message.chat.id}, {"$set": {f"locks.{l_type}": False}})
+    await db.locks.update_one({"chat_id": cb.message.chat.id}, {"$set": {f"locks.{l_type}": False}})
     await cb.message.edit_text(f"<b>🔓 {stylish(l_type)} {stylish('unlocked!')}</b>")
+
+@app.on_callback_query(filters.regex("close_lock"))
+async def close_lock_cb(client, cb: CallbackQuery):
+    if not await is_admin(client, cb.message.chat.id, cb.from_user.id): return
+    await cb.message.delete()
 
 @app.on_message(filters.command("locks") & filters.group)
 async def show_locks(client, message: Message):
-    data = await db.db.locks.find_one({"chat_id": message.chat.id})
+    data = await db.locks.find_one({"chat_id": message.chat.id})
     locks = data.get("locks", {}) if data else {}
     active = [k for k, v in locks.items() if v]
     text = f"<b>┏━━「 {stylish('active locks')} 」━━┓\n┃ " + ("\n┃ ".join([f"✅ {stylish(x)}" for x in active]) if active else stylish('none')) + "\n┗━━━━━━━━━━┛</b>"
     await message.reply_text(text)
 
-# Lock Guardian Logic
 @app.on_message(filters.group & ~filters.service, group=2)
 async def lock_guardian(client, message: Message):
     if await is_admin(client, message.chat.id, message.from_user.id): return
-    data = await db.db.locks.find_one({"chat_id": message.chat.id})
+    data = await db.locks.find_one({"chat_id": message.chat.id})
     if not data: return
     locks = data.get("locks", {})
 
@@ -843,95 +828,14 @@ async def lock_guardian(client, message: Message):
 
 @app.on_message(filters.new_chat_members)
 async def lock_bot_check(client, message: Message):
-    data = await db.db.locks.find_one({"chat_id": message.chat.id})
+    data = await db.locks.find_one({"chat_id": message.chat.id})
     if data and data.get("locks", {}).get("bot"):
         for member in message.new_chat_members:
             if member.is_bot: await client.ban_chat_member(message.chat.id, member.id)
-            
-            
-            from collections import defaultdict
 
-# ফ্লাড ট্র্যাকিং এর জন্য ডিকশনারি
-flood_data = defaultdict(list)
-
-@app.on_message(filters.group & ~filters.service & ~filters.me)
-async def anti_flood_handler(client, message: Message):
-    if not message.from_user or await is_admin(client, message.chat.id, message.from_user.id):
-        return
-
-    chat_id = message.chat.id
-    user_id = message.from_user.id
-    now = time.time()
-
-    # ইউজারের মেসেজ টাইমস্ট্যাম্প সেভ করা
-    flood_data[user_id].append(now)
-    
-    # ৩ সেকেন্ডের আগের সব রেকর্ড মুছে ফেলা
-    flood_data[user_id] = [t for t in flood_data[user_id] if now - t < 3]
-
-    if len(flood_data[user_id]) > 5: # যদি ৩ সেকেন্ডে ৫টির বেশি মেসেজ হয়
-        try:
-            # ১ ঘণ্টার জন্য মিউট
-            until_date = datetime.datetime.now() + datetime.timedelta(hours=1)
-            await client.restrict_chat_member(chat_id, user_id, enums.ChatPermissions(), until_date=until_date)
-            
-            # ট্র্যাকিং রিসেট
-            flood_data[user_id] = []
-            
-            mention = f"<a href='tg://user?id={user_id}'>{message.from_user.first_name}</a>"
-            text = f"""
-<b>┏━━「 {stylish('anti flood')} 」━━┓</b>
-<b>┃ 👤 {stylish('user')}: {mention}</b>
-<b>┃ 🆔 {stylish('id')}: <code>{user_id}</code></b>
-<b>┃ 🚫 {stylish('action')}: 1ʜ {stylish('mute')}</b>
-<b>┃ 📝 {stylish('reason')}: {stylish('spamming detected')}</b>
-<b>┗━━━━━━━━━━┛</b>
-"""
-            await message.reply_text(text)
-            await message.delete() # স্প্যাম মেসেজ ডিলিট
-        except Exception as e:
-            logger.error(f"Anti-Flood Error: {e}")
-            
-            
-            @app.on_message(filters.regex(r"(?i)@admin") | filters.command("report") & filters.group)
-async def report_handler(client, message: Message):
-    chat_id = message.chat.id
-    reporter = message.from_user
-    
-    # যদি মেম্বার কোনো মেসেজে রিপ্লাই করে রিপোর্ট করে
-    reported_msg = message.reply_to_message
-    
-    # অ্যাডমিন লিস্ট বের করা
-    admins = []
-    async for m in client.get_chat_members(chat_id, filter=enums.ChatMembersFilter.ADMINISTRATORS):
-        if not m.user.is_bot:
-            admins.append(m.user.id)
-            
-    if not admins: return
-
-    # রিপ্লাই দেওয়া মেসেজ থাকলে তার লিঙ্ক তৈরি
-    msg_link = f"https://t.me/c/{str(chat_id)[4:]}/{reported_msg.id}" if reported_msg else "N/A"
-    
-    text = f"""
-<b>┏━━「 {stylish('admin alert')} 」━━┓</b>
-<b>┃ ┏─「 {stylish('report info')} 」</b>
-<b>┃ ┃ 👤 {stylish('by')}: {reporter.mention}</b>
-<b>┃ ┃ 🆔 {stylish('id')}: <code>{reporter.id}</code></b>
-<b>┃ ┗───────────╼</b>
-<b>┃</b>
-<b>┃ 🚩 {stylish('reported message below')}</b>
-<b>┃ 🔗 <a href='{msg_link}'>{stylish('click to view')}</a></b>
-<b>┗━━━━━━━━━━┛</b>
-"""
-    # অ্যাডমিনদের মেনশন করা (নোটিফিকেশনের জন্য)
-    # ৫ জন অ্যাডমিনকে একসাথে মেনশন করা হবে যাতে স্প্যাম না হয়
-    mention_text = " ".join([f"[\u2063](tg://user?id={admin_id})" for admin_id in admins[:5]])
-    
-    await message.reply_text(f"{text}{mention_text}", disable_web_page_preview=True)
-    
+# --- [ HELP MENU ] ---
 @app.on_message(filters.command("help") & filters.group)
 async def admin_help(client, message: Message):
-    # Shudhu admin check
     if not await is_admin(client, message.chat.id, message.from_user.id):
         return await message.reply_text(f"<b>❌ {stylish('error')}: {stylish('this command is only for admins!')}</b>")
 
@@ -972,61 +876,21 @@ async def admin_help(client, message: Message):
         ])
     )
 
-# Help Menu Close Callback
 @app.on_callback_query(filters.regex("close_help"))
 async def close_help_cb(client, cb: CallbackQuery):
     if not await is_admin(client, cb.message.chat.id, cb.from_user.id):
         return await cb.answer("❌ Admin Only!", show_alert=True)
-    await cb.message.delete()    
-                            
-# --- [ 5. ULTIMATE BROADCAST SYSTEM ] ---
-@app.on_message(filters.command("broadcast") & filters.private)
-async def broadcast(client, message: Message):
-    if not await is_owner(message.from_user.id): return
-    
-    if not message.reply_to_message:
-        return await message.reply_text(f"<b>❌ {stylish('reply to a message!')}</b>")
-    
-    status = await message.reply_text(f"<b>🚀 {stylish('processing broadcast...')}</b>")
-    
-    target = message.reply_to_message
-    caption = target.caption or target.text or ""
-    clean_text, markup = parse_buttons(caption)
-    
-    # Use original markup if no new buttons defined
-    if not markup: markup = target.reply_markup
+    await cb.message.delete()
 
-    stats = {'users': 0, 'groups': 0, 'failed': 0}
-    
-    # Broadcast to Users
-    async for user in await db.get_all_users():
-        try:
-            await target.copy(user['user_id'], caption=clean_text, reply_markup=markup)
-            stats['users'] += 1
-            await asyncio.sleep(0.1)
-        except Exception: stats['failed'] += 1
-            
-    # Broadcast to Groups
-    async for group in await db.get_all_groups():
-        try:
-            await target.copy(group['chat_id'], caption=clean_text, reply_markup=markup)
-            stats['groups'] += 1
-            await asyncio.sleep(0.1)
-        except Exception: stats['failed'] += 1
-        
-    await status.edit_text(
-        f"<b>┏━━「 {stylish('broadcast report')} 」━━┓</b>\n"
-        f"<b>┃ ✅ {stylish('users')}: {stats['users']}</b>\n"
-        f"<b>┃ ✅ {stylish('groups')}: {stats['groups']}</b>\n"
-        f"<b>┃ ❌ {stylish('failed')}: {stats['failed']}</b>\n"
-        f"<b>┗━━━━━━━━━━┛</b>"
-    )
-    
-    
-
-# --- [ MAIN ] ---
+# --- [ EXECUTION ] ---
 if __name__ == "__main__":
-    print("🔥 DX-BOT Advanced Version Started!")
-    threading.Thread(target=run_web_server, daemon=True).start()
-    threading.Thread(target=keep_alive, daemon=True).start()
+    t = threading.Thread(target=run_web_server)
+    t.daemon = True
+    t.start()
+    
+    t2 = threading.Thread(target=keep_alive)
+    t2.daemon = True
+    t2.start()
+    
+    print("🚀 BOT STARTED SUCCESSFULLY!")
     app.run()
