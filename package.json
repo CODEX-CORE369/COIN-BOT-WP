@@ -1,6 +1,6 @@
 {
-  "name": "dx-system-bot",
-  "version": "6.0.0",
+  "name": "dx-system-v7",
+  "version": "7.0.0",
   "description": "Advanced WA Manager by DX-CODEX",
   "main": "index.js",
   "type": "module",
@@ -8,16 +8,17 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.0",
+    "@whiskeysockets/baileys": "^6.7.21",
+    "@hapi/boom": "^10.0.1",
     "awesome-phonenumber": "^6.8.0",
-    "express": "^4.18.2",
+    "express": "^4.21.2",
     "fs-extra": "^11.2.0",
     "mongoose": "^8.0.3",
     "node-telegram-bot-api": "^0.64.0",
-    "pino": "^8.17.2",
+    "pino": "^9.5.0",
     "qrcode-terminal": "^0.12.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   }
 }
