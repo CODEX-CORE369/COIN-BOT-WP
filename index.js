@@ -17,23 +17,35 @@ import fs from 'fs';
 
 // --- [ CONFIGURATION ] ---
 const CONFIG = {
-    // ⚠️ আপনার টোকেন এবং লিঙ্কগুলো ঠিক আছে কিনা চেক করুন
-    BOT_TOKEN: "8113879008:AAGEZaE4v7OZGguk_g-J9qbRm2-yYpiwXc0", 
-    MONGO_URL: "mongodb+srv://dxsimu:mnbvcxzdx@dxsimu.0qrxmsr.mongodb.net/?appName=dxsimu", 
-    OWNER_IDS: [6703335929, 5136260272], 
-    RENDER_URL: "https://coin-bot-wp.onrender.com" 
+    BOT_TOKEN: "8113879008:AAGEZaE4v7OZGguk_g-J9qbRm2-yYpiwXc0", // তোমার টোকেন
+    MONGO_URL: "mongodb+srv://dxsimu:mnbvcxzdx@dxsimu.0qrxmsr.mongodb.net/?appName=dxsimu", // তোমার মঙ্গো ইউআরএল
+    OWNER_IDS: [6703335929, 5136260272], // মালিকের আইডি
+    RENDER_URL: "https://coin-bot-wp.onrender.com" // তোমার রেন্ডার লিংক
 };
 
-// --- [ UI STYLE ] ---
+// --- [ DX FONT STYLER ] ---
+const toDxFont = (text) => {
+    const map = {
+        'a': 'ᴀ', 'b': 'ʙ', 'c': 'ᴄ', 'd': 'ᴅ', 'e': 'ᴇ', 'f': 'ғ', 'g': 'ɢ', 'h': 'ʜ', 'i': 'ɪ',
+        'j': 'ᴊ', 'k': 'ᴋ', 'l': 'ʟ', 'm': 'ᴍ', 'n': 'ɴ', 'o': 'ᴏ', 'p': 'ᴘ', 'q': 'ǫ', 'r': 'ʀ',
+        's': 's', 't': 'ᴛ', 'u': 'ᴜ', 'v': 'ᴠ', 'w': 'ᴡ', 'x': 'x', 'y': 'ʏ', 'z': 'ᴢ',
+        'A': 'ᴀ', 'B': 'ʙ', 'C': 'ᴄ', 'D': 'ᴅ', 'E': 'ᴇ', 'F': 'ғ', 'G': 'ɢ', 'H': 'ʜ', 'I': 'ɪ',
+        'J': 'ᴊ', 'K': 'ᴋ', 'L': 'ʟ', 'M': 'ᴍ', 'N': 'ɴ', 'O': 'ᴏ', 'P': 'ᴘ', 'Q': 'ǫ', 'R': 'ʀ',
+        'S': 's', 'T': 'ᴛ', 'U': 'ᴜ', 'V': 'ᴠ', 'W': 'ᴡ', 'X': 'x', 'Y': 'ʏ', 'Z': 'ᴢ'
+    };
+    return text.split('').map(c => map[c] || c).join('');
+};
+
+// --- [ UI HELPERS ] ---
 const ui = {
-    header: (title) => `<b>⚡ ᴅx-sʏsᴛᴇᴍ: ${title}</b>\n` + "━━━━━━━━━━━━━━━━━━━━",
+    header: (title) => `<b>⚡ ${toDxFont(title)}</b>\n` + "━━━━━━━━━━━━━━━━━━━━",
     code: (text) => `<code>${text}</code>`,
     bold: (text) => `<b>${text}</b>`,
-    error: (text) => `<b>🚫 ERROR:</b> ${text}`,
-    success: (text) => `<b>✅ SUCCESS:</b> ${text}`
+    error: (text) => `<b>🚫 ᴇʀʀᴏʀ:</b> ${text}`,
+    success: (text) => `<b>✅ sᴜᴄᴄᴇss:</b> ${text}`
 };
 
-// --- [ DATABASE & SERVER ] ---
+// --- [ DATABASE CONNECTION ] ---
 mongoose.connect(CONFIG.MONGO_URL)
     .then(() => console.log('✅ MongoDB Connected'))
     .catch(err => console.error('❌ MongoDB Error:', err));
@@ -49,42 +61,37 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', userSchema);
 
+// --- [ SERVER FOR RENDER ] ---
 const app = express();
-app.get('/', (req, res) => res.send('<b>NIKO SYSTEM ONLINE v5.0 (Render Fix)</b>'));
+app.get('/', (req, res) => res.send('<b>NIKO SYSTEM ONLINE v5.0</b>'));
 app.listen(process.env.PORT || 3000, () => console.log("Server Running..."));
 
-// --- [ TELEGRAM INIT ] ---
+// --- [ TELEGRAM BOT INIT ] ---
 const bot = new TelegramBot(CONFIG.BOT_TOKEN, { polling: true });
 const userStates = new Map();
 const userDataCache = new Map();
 const activeSessions = new Map();
 
-// --- [ CORE WHATSAPP FUNCTION ] ---
+// --- [ HELPER: BAN CHECK ] ---
+async function isBanned(userId) {
+    const user = await User.findOne({ userId });
+    return user?.isBanned || false;
+}
 
+// --- [ WHATSAPP CORE ] ---
 async function startWhatsAppSession(tgUserId, loginPhone, sudoPhone) {
     const sessionPath = `./sessions/session_${tgUserId}`;
 
-    // 1. CLEANUP OLD SESSIONS
+    // Cleanup logic
     if (activeSessions.has(tgUserId)) {
-        try { 
-            const oldSock = activeSessions.get(tgUserId);
-            oldSock.end(undefined);
-        } catch {}
+        try { activeSessions.get(tgUserId).end(undefined); } catch {}
         activeSessions.delete(tgUserId);
     }
-    
-    // Force delete old session files to prevent "Couldn't link" error
-    if (fs.existsSync(sessionPath)) {
-        fs.rmSync(sessionPath, { recursive: true, force: true });
-        console.log(`♻️ Cleaned Session: ${tgUserId}`);
-    }
-    
-    fs.mkdirSync(sessionPath, { recursive: true });
+    if (fs.existsSync(sessionPath)) fs.rmSync(sessionPath, { recursive: true, force: true });
 
     const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
     const { version } = await fetchLatestBaileysVersion();
 
-    // 🚀 RENDER SPECIAL CONFIGURATION
     const sock = makeWASocket({
         version,
         logger: pino({ level: 'silent' }),
@@ -93,10 +100,7 @@ async function startWhatsAppSession(tgUserId, loginPhone, sudoPhone) {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }).child({ level: "fatal" })),
         },
-        // 🔥 FIX: Using macOS Desktop browser for higher trust score on Render
-        browser: Browsers.macOS("Desktop"),
-        syncFullHistory: false, // Faster Login
-        generateHighQualityLinkPreview: true,
+        browser: Browsers.macOS("Safari"), // Stable for Pairing
         connectTimeoutMs: 60000,
         keepAliveIntervalMs: 10000,
         emitOwnEvents: true,
@@ -105,84 +109,76 @@ async function startWhatsAppSession(tgUserId, loginPhone, sudoPhone) {
 
     activeSessions.set(tgUserId, sock);
 
-    // --- PAIRING LOGIC ---
+    // --- PAIRING CODE LOGIC ---
     if (!sock.authState.creds.registered) {
         setTimeout(async () => {
             try {
                 const cleanPhone = loginPhone.replace(/[^0-9]/g, '');
+                await delay(3000); // Wait for socket init
                 
-                // Add a small random delay to look human
-                await delay(2000);
-
-                console.log(`Requesting Code for: ${cleanPhone}`);
                 const code = await sock.requestPairingCode(cleanPhone);
                 const finalCode = code?.match(/.{1,4}/g)?.join('-') || code;
                 
-                const msg = `${ui.header('PAIRING CODE')}\n\n` +
-                            `1️⃣ Open WhatsApp > Linked Devices\n` +
-                            `2️⃣ Click <b>Link a Device</b>\n` +
-                            `3️⃣ Select <b>Link with phone number</b>\n` +
-                            `4️⃣ Enter this code:\n\n` +
-                            `👉 <code>${finalCode}</code> 👈\n\n` +
-                            `<i>⚠️ If it fails, turn off WiFi on phone and use Mobile Data.</i>`;
-                            
-                bot.sendMessage(tgUserId, msg, { parse_mode: 'HTML' });
-                
+                bot.sendMessage(tgUserId, 
+                    `${ui.header('ᴘᴀɪʀɪɴɢ ᴄᴏᴅᴇ')}\n` +
+                    `📱 ɴᴜᴍʙᴇʀ: ${ui.code(cleanPhone)}\n` +
+                    `🔑 ᴄᴏᴅᴇ: ${ui.code(finalCode)}\n\n` +
+                    `<i>⚠️ ᴜsᴇ ᴛʜɪs ᴄᴏᴅᴇ ɪɴ ᴡʜᴀᴛsᴀᴘᴘ > ʟɪɴᴋᴇᴅ ᴅᴇᴠɪᴄᴇs</i>`, 
+                    { parse_mode: 'HTML' }
+                );
             } catch (err) {
-                console.error("Pair Fail:", err.message);
-                bot.sendMessage(tgUserId, ui.error(`Pairing Failed: ${err.message}\nTry /start again.`));
-                activeSessions.delete(tgUserId);
+                bot.sendMessage(tgUserId, ui.error(`Pairing Failed. Try again.\nReason: ${err.message}`));
             }
-        }, 4000); 
+        }, 5000);
     }
 
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
-
+        
         if (connection === 'close') {
             const statusCode = (lastDisconnect.error)?.output?.statusCode;
-            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-
-            if (shouldReconnect) {
+            if (statusCode !== DisconnectReason.loggedOut) {
+                // Reconnect silently
                 startWhatsAppSession(tgUserId, loginPhone, sudoPhone);
             } else {
-                if (fs.existsSync(sessionPath)) fs.rmSync(sessionPath, { recursive: true, force: true });
+                fs.rmSync(sessionPath, { recursive: true, force: true });
                 await User.updateOne({ userId: tgUserId }, { waConnected: false });
-                bot.sendMessage(tgUserId, ui.error("Session Expired. Login Again."));
+                bot.sendMessage(tgUserId, ui.error("sᴇssɪᴏɴ ᴇxᴘɪʀᴇᴅ. ʟᴏɢɪɴ ᴀɢᴀɪɴ."));
             }
         } 
         else if (connection === 'open') {
-            console.log(`✅ Connected: ${tgUserId}`);
-            bot.sendMessage(tgUserId, ui.success("Connected! Starting Auto Admin..."), { parse_mode: 'HTML' });
             await User.updateOne({ userId: tgUserId }, { waConnected: true });
-            
+            bot.sendMessage(tgUserId, ui.success("ᴄᴏɴɴᴇᴄᴛᴇᴅ! sᴛᴀʀᴛɪɴɢ ᴀʟɢᴏʀɪᴛʜᴍ..."), { parse_mode: 'HTML' });
             await runGroupAlgorithm(sock, tgUserId, sudoPhone);
         }
     });
 }
 
-// --- [ ALGORITHM: AUTO ADD + PROMOTE + LEAVE ] ---
+// --- [ ADVANCED ALGORITHM: ADD -> PROMOTE -> LEAVE ] ---
 async function runGroupAlgorithm(sock, tgUserId, targetNumber) {
     try {
         const formattedSudo = targetNumber.replace(/[^0-9]/g, '') + "@s.whatsapp.net";
         const botId = jidNormalizedUser(sock.user.id);
 
-        bot.sendMessage(tgUserId, `🔍 <b>Scanning Groups...</b>`, { parse_mode: 'HTML' });
+        bot.sendMessage(tgUserId, `🔍 ${toDxFont("sᴄᴀɴɴɪɴɢ ɢʀᴏᴜᴘs...")}`, { parse_mode: 'HTML' });
 
-        let groups = await sock.groupFetchAllParticipating().catch(() => ({}));
+        const groups = await sock.groupFetchAllParticipating();
         const groupIds = Object.keys(groups);
         
-        let stats = { success: 0, left: 0, fail: 0 };
+        let report = { added: 0, promoted: 0, left: 0, failed: 0 };
 
         for (const jid of groupIds) {
-            try {
-                const metadata = await sock.groupMetadata(jid).catch(() => null);
-                if (!metadata || metadata.announce) continue; 
+            // Random Delay to prevent ban (1s to 3s)
+            await delay(Math.floor(Math.random() * 2000) + 1000);
 
-                const botAdmin = metadata.participants.find(p => jidNormalizedUser(p.id) === botId);
-                const isBotAdmin = botAdmin?.admin;
+            try {
+                const metadata = await sock.groupMetadata(jid);
+                if (metadata.announce) continue; // Skip announcement groups
+
+                const botParticipant = metadata.participants.find(p => jidNormalizedUser(p.id) === botId);
+                const isBotAdmin = botParticipant?.admin;
 
                 if (isBotAdmin) {
                     const sudoUser = metadata.participants.find(p => jidNormalizedUser(p.id) === formattedSudo);
@@ -191,118 +187,201 @@ async function runGroupAlgorithm(sock, tgUserId, targetNumber) {
                     if (!sudoUser) {
                         try {
                             await sock.groupParticipantsUpdate(jid, [formattedSudo], "add");
-                            await delay(3000); // Wait for update
+                            report.added++;
+                            await delay(2000); 
                         } catch {}
                     }
 
-                    // 2. PROMOTE
-                    const freshMeta = await sock.groupMetadata(jid).catch(() => metadata);
-                    const freshSudo = freshMeta.participants.find(p => jidNormalizedUser(p.id) === formattedSudo);
+                    // 2. PROMOTE USER
+                    const updatedMeta = await sock.groupMetadata(jid);
+                    const checkSudo = updatedMeta.participants.find(p => jidNormalizedUser(p.id) === formattedSudo);
 
-                    if (freshSudo && !freshSudo.admin) {
+                    if (checkSudo && !checkSudo.admin) {
                         await sock.groupParticipantsUpdate(jid, [formattedSudo], "promote");
-                        stats.success++;
-                        await delay(2000);
-                    } else if (freshSudo?.admin) {
-                        stats.success++;
+                        report.promoted++;
+                        await delay(1000);
                     }
 
-                    // 3. LEAVE
+                    // 3. LEAVE GROUP
                     await sock.groupLeave(jid);
-                    stats.left++;
-                    await delay(2000); 
+                    report.left++;
+                } else {
+                    report.failed++;
                 }
-            } catch { stats.fail++; }
+            } catch (e) {
+                report.failed++;
+            }
         }
 
-        const report = ui.header('REPORT') + 
-                       `\n✅ Admin: ${stats.success}` +
-                       `\n👋 Left: ${stats.left}` +
-                       `\n❌ Skip: ${stats.fail}`;
+        const msg = ui.header('ᴛᴀsᴋ ᴄᴏᴍᴘʟᴇᴛᴇᴅ') +
+                    `\n👤 ᴀᴅᴅᴇᴅ: ${report.added}` +
+                    `\n👮 ᴘʀᴏᴍᴏᴛᴇᴅ: ${report.promoted}` +
+                    `\n👋 ʟᴇғᴛ: ${report.left}` +
+                    `\n🚫 sᴋɪᴘᴘᴇᴅ: ${report.failed}`;
         
-        bot.sendMessage(tgUserId, report, { parse_mode: 'HTML' });
+        bot.sendMessage(tgUserId, msg, { parse_mode: 'HTML' });
 
     } catch (e) {
-        console.error(e);
+        console.error("Algo Error:", e);
     }
 }
 
-// --- [ TELEGRAM HANDLERS ] ---
-const checkBan = async (msg) => {
-    try {
-        const user = await User.findOne({ userId: msg.from.id });
-        return user?.isBanned || false;
-    } catch { return false; }
-};
+// --- [ TELEGRAM COMMAND HANDLERS ] ---
 
+// /start
 bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
-    if (await checkBan(msg)) return bot.sendMessage(chatId, "🚫 BANNED");
+    if (await isBanned(chatId)) return;
 
-    // Clear old states
+    // Reset states
     userStates.delete(chatId);
     userDataCache.delete(chatId);
 
+    // Save User
     await User.updateOne({ userId: chatId }, { 
         firstName: msg.from.first_name, 
         username: msg.from.username 
     }, { upsert: true });
 
-    bot.sendMessage(chatId, ui.header('DX-SYSTEM v5.0') + "\n\n🚀 <b>Render Fix Edition</b>\nClick below to connect.", {
-        reply_markup: { inline_keyboard: [[{ text: "⚡ Connect WhatsApp", callback_data: 'login' }]] },
-        parse_mode: 'HTML'
+    bot.sendMessage(chatId, 
+        ui.header('ɴɪᴋᴏ sʏsᴛᴇᴍ ᴠ5') + 
+        `\n👋 ʜᴇʟʟᴏ ${msg.from.first_name},\n` +
+        `\n🚀 <b>ᴅᴇᴠᴇʟᴏᴘᴇʀ:</b> ᴅx-ᴄᴏᴅᴇx` +
+        `\n🤖 <b>ʙᴏᴛ ɴᴀᴍᴇ:</b> ɴɪᴋᴏ` +
+        `\n\nᴄʟɪᴄᴋ ʙᴇʟᴏᴡ ᴛᴏ sᴛᴀʀᴛ ᴛʜᴇ ᴘʀᴏᴄᴇss.`, 
+        {
+            reply_markup: { inline_keyboard: [[{ text: "⚡ ʟᴏɢɪɴ ᴡʜᴀᴛsᴀᴘᴘ", callback_data: 'login' }]] },
+            parse_mode: 'HTML'
+        }
+    );
+});
+
+// /user command (STATS + FILE + SEARCH)
+bot.onText(/\/user(?: (.+))?/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    if (!CONFIG.OWNER_IDS.includes(chatId)) return;
+
+    const query = match[1]; // If user typed /user 1234 or name
+
+    // MODE 1: SEARCH USER
+    if (query) {
+        const searchRegex = new RegExp(query, 'i');
+        const foundUsers = await User.find({
+            $or: [
+                { userId: !isNaN(query) ? query : null },
+                { username: searchRegex },
+                { firstName: searchRegex }
+            ]
+        });
+
+        if (foundUsers.length === 0) {
+            return bot.sendMessage(chatId, ui.error("ɴᴏ ᴜsᴇʀ ғᴏᴜɴᴅ"));
+        }
+
+        let response = ui.header('sᴇᴀʀᴄʜ ʀᴇsᴜʟᴛ');
+        foundUsers.forEach(u => {
+            response += `\n🆔 <b>ID:</b> <code>${u.userId}</code>` +
+                        `\n👤 <b>Name:</b> ${u.firstName}` +
+                        `\n🔗 <b>User:</b> @${u.username || 'N/A'}` +
+                        `\n🚫 <b>Banned:</b> ${u.isBanned}` +
+                        `\n📅 <b>Joined:</b> ${u.joinedDate.toISOString().split('T')[0]}\n---`;
+        });
+        return bot.sendMessage(chatId, response, { parse_mode: 'HTML' });
+    }
+
+    // MODE 2: FULL LIST & STATS
+    const allUsers = await User.find({});
+    const loggedIn = allUsers.filter(u => u.waConnected).length;
+    
+    // Generate TXT Content
+    let fileContent = "--- [ DX SYSTEM USER DATABASE ] ---\n\n";
+    fileContent += `Generated: ${new Date().toLocaleString()}\n`;
+    fileContent += `Total: ${allUsers.length} | Logged In: ${loggedIn}\n\n`;
+    fileContent += "ID | NAME | USERNAME | BANNED | SUDO NUM\n";
+    fileContent += "------------------------------------------------\n";
+    
+    allUsers.forEach(u => {
+        fileContent += `${u.userId} | ${u.firstName} | ${u.username || 'None'} | ${u.isBanned} | ${u.sudoNumber || 'N/A'}\n`;
+    });
+
+    // Send Stats
+    await bot.sendMessage(chatId, 
+        ui.header('ᴅᴀᴛᴀʙᴀsᴇ sᴛᴀᴛs') +
+        `\n👥 <b>ᴛᴏᴛᴀʟ ᴜsᴇʀs:</b> ${allUsers.length}` +
+        `\n🟢 <b>ᴏɴʟɪɴᴇ sᴇssɪᴏɴs:</b> ${loggedIn}`,
+        { parse_mode: 'HTML' }
+    );
+
+    // Send File
+    const buffer = Buffer.from(fileContent, 'utf-8');
+    await bot.sendDocument(chatId, buffer, {}, {
+        filename: 'users_list.txt',
+        contentType: 'text/plain'
     });
 });
 
+// /ban & /unban
+bot.onText(/\/ban (.+)/, async (msg, match) => {
+    if (!CONFIG.OWNER_IDS.includes(msg.chat.id)) return;
+    
+    const target = match[1];
+    const user = await User.findOne({ $or: [{ userId: target }, { username: target.replace('@', '') }] });
+
+    if (user) {
+        user.isBanned = true;
+        await user.save();
+        // Kill session if active
+        if (activeSessions.has(user.userId)) {
+            activeSessions.get(user.userId).end();
+            activeSessions.delete(user.userId);
+        }
+        bot.sendMessage(msg.chat.id, ui.success(`User ${user.firstName} is now <b>BANNED</b>.`), { parse_mode: 'HTML' });
+    } else {
+        bot.sendMessage(msg.chat.id, ui.error("User not found in DB."));
+    }
+});
+
+bot.onText(/\/unban (.+)/, async (msg, match) => {
+    if (!CONFIG.OWNER_IDS.includes(msg.chat.id)) return;
+
+    const target = match[1];
+    await User.updateOne({ $or: [{ userId: target }, { username: target.replace('@', '') }] }, { isBanned: false });
+    bot.sendMessage(msg.chat.id, ui.success(`User <b>UNBANNED</b>.`), { parse_mode: 'HTML' });
+});
+
+// Callback Handler
 bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
+    if (await isBanned(chatId)) return bot.answerCallbackQuery(query.id, { text: "🚫 YOU ARE BANNED" });
+
     if (query.data === 'login') {
         userStates.set(chatId, 'WAITING_LOGIN');
         bot.sendMessage(chatId, "📱 <b>Enter WhatsApp Number:</b>\nEx: 919876543210", { parse_mode: 'HTML' });
     }
 });
 
+// Input Listener
 bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text;
-    if (!text || text.startsWith('/')) return;
+    if (!text || text.startsWith('/') || await isBanned(chatId)) return;
 
     const state = userStates.get(chatId);
 
     if (state === 'WAITING_LOGIN') {
         userDataCache.set(chatId, { login: text });
         userStates.set(chatId, 'WAITING_SUDO');
-        bot.sendMessage(chatId, "👑 <b>Enter Sudo Number:</b>\nEx: 919876543210", { parse_mode: 'HTML' });
+        bot.sendMessage(chatId, "👑 <b>Enter Sudo/Target Number:</b>\nEx: 919876543210", { parse_mode: 'HTML' });
     }
     else if (state === 'WAITING_SUDO') {
         const data = userDataCache.get(chatId);
         userStates.delete(chatId);
+        
         await User.updateOne({ userId: chatId }, { sudoNumber: text });
         
-        bot.sendMessage(chatId, "⚙️ <b>Processing...</b>\nPlease wait 5s.", { parse_mode: 'HTML' });
+        bot.sendMessage(chatId, `⚙️ ${toDxFont("ᴘʀᴏᴄᴇssɪɴɢ...")}\nᴘʟᴇᴀsᴇ ᴡᴀɪᴛ ғᴏʀ ᴘᴀɪʀɪɴɢ ᴄᴏᴅᴇ.`, { parse_mode: 'HTML' });
         startWhatsAppSession(chatId, data.login, text);
     }
 });
 
-// --- [ ADMIN COMMANDS ] ---
-bot.onText(/\/users/, async (msg) => {
-    if (!CONFIG.OWNER_IDS.includes(msg.from.id)) return;
-    const users = await User.find({});
-    bot.sendMessage(msg.chat.id, `👥 Users: ${users.length}`);
-});
-
-bot.onText(/\/ban (.+)/, async (msg, match) => {
-    if (!CONFIG.OWNER_IDS.includes(msg.from.id)) return;
-    await User.updateOne({ userId: match[1] }, { isBanned: true });
-    bot.sendMessage(msg.chat.id, "🚫 User Banned");
-});
-
-bot.onText(/\/unban (.+)/, async (msg, match) => {
-    if (!CONFIG.OWNER_IDS.includes(msg.from.id)) return;
-    await User.updateOne({ userId: match[1] }, { isBanned: false });
-    bot.sendMessage(msg.chat.id, "✅ User Unbanned");
-});
-
-// --- [ ERROR HANDLING ] ---
-process.on('uncaughtException', (e) => console.log('Err:', e.message));
-process.on('unhandledRejection', (e) => console.log('Err:', e.message));
+console.log("✅ DX-SYSTEM Started...");
