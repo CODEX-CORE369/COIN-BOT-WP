@@ -1,0 +1,25 @@
+{
+  "name": "niko-wp-manager",
+  "version": "1.0.0",
+  "description": "WhatsApp Group Sudo Adder and Auto-Leave Bot via Telegram",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.6.0",
+    "node-telegram-bot-api": "^0.66.0",
+    "mongoose": "^8.0.0",
+    "express": "^4.18.2",
+    "pino": "^9.0.0",
+    "axios": "^1.6.0",
+    "qrcode-terminal": "^0.12.0",
+    "fs-extra": "^11.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "DX-SIMU",
+  "license": "ISC"
+}
