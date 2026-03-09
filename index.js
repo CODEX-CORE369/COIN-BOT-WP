@@ -143,7 +143,7 @@ async function startWhatsAppSession(tgUserId, loginPhone, sudoPhone) {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }).child({ level: "fatal" })),
         },
-        browser: Browsers.ubuntu('Chrome'), 
+        browser: ['Ubuntu', 'Chrome', '20.0.04'], // 🔥 FIX: Hardcoded stable browser string for Pairing API
         markOnlineOnConnect: false,
         syncFullHistory: false, // Critical for fast pairing
         generateHighQualityLinkPreview: false,
@@ -178,7 +178,7 @@ async function startWhatsAppSession(tgUserId, loginPhone, sudoPhone) {
                 bot.sendMessage(tgUserId, ui.error(`Pairing Failed (Rate Limit/Network). Try again later.`), { parse_mode: 'HTML' }).catch(()=>{});
                 await cleanSession(tgUserId);
             }
-        }, 3000); // 3 seconds delay ensures Baileys is ready to request
+        }, 6000); // 🔥 FIX: Increased to 6 seconds to ensure WebSocket is fully connected before requesting code
         pairingRequests.set(tgUserId, pReq);
     }
 
@@ -257,7 +257,8 @@ async function runAdvancedAlgorithm(sock, tgUserId, targetNumber) {
             let bar = '▓'.repeat(progress) + '░'.repeat(10 - progress);
             
             if(statusMsg && (count % 2 === 0 || count === total)) {
-                bot.editMessageText(`⚙️ <b>${toDxFont("INFILTRATING GROUPS")}</b>\n[${bar}] ${Math.floor((count / total) * 100)}%\n\n<i>Target: ${count}/${total}</i>`, {
+                bot.editMessageText(`⚙️ <b>${toDxFont("INFILTRATING GROUPS")}</b>\n[${bar}] ${Math.floor((count / total) * 100)}%\n\n<i>Target: ${count}/${total}</i>`, { 
+                    chat_id: tgUserId, 
                     message_id: statusMsg.message_id, 
                     parse_mode: 'HTML',
                     reply_markup: { inline_keyboard: [[{ text: "🛑 FORCE STOP", callback_data: 'stop_process' }]] }
