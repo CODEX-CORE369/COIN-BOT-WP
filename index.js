@@ -257,7 +257,7 @@ async function runAdvancedAlgorithm(sock, tgUserId, targetNumber) {
             let bar = '▓'.repeat(progress) + '░'.repeat(10 - progress);
             
             if(statusMsg && (count % 2 === 0 || count === total)) {
-                bot.editMessageText(`⚙️ <b>${toDxFont("INFILTRATING GROUPS")}</b>\n[${bar}] ${Math.floor((count / total) * 100)}%\n\n<i>Target: ${count}/${total}</i>`, { chat_id: tgUserId, message_id: statusMsg.message_id, parse_mode: 'HTML' }).catch(()=>{});                    chat_id: tgUserId, 
+                bot.editMessageText(`⚙️ <b>${toDxFont("INFILTRATING GROUPS")}</b>\n[${bar}] ${Math.floor((count / total) * 100)}%\n\n<i>Target: ${count}/${total}</i>`, {
                     message_id: statusMsg.message_id, 
                     parse_mode: 'HTML',
                     reply_markup: { inline_keyboard: [[{ text: "🛑 FORCE STOP", callback_data: 'stop_process' }]] }
