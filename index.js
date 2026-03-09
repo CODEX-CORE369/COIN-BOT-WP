@@ -136,22 +136,22 @@ async function startWhatsAppSession(tgUserId, loginPhone, sudoPhone) {
     const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
-        version,
-        logger: pino({ level: 'silent' }), 
-        printQRInTerminal: false,
-        auth: {
-            creds: state.creds,
-            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }).child({ level: "fatal" })),
-        },
-        browser: ['Ubuntu', 'Chrome', '20.0.04'], // 🔥 FIX: Hardcoded stable browser string for Pairing API
-        markOnlineOnConnect: false,
-        syncFullHistory: false, // Critical for fast pairing
-        generateHighQualityLinkPreview: false,
-        connectTimeoutMs: 60000,
-        keepAliveIntervalMs: 15000,
-        emitOwnEvents: true,
-        retryRequestDelayMs: 2500
-    });
+    version,
+    logger: pino({ level: 'silent' }), 
+    printQRInTerminal: false,
+    auth: {
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }).child({ level: "fatal" })),
+    },
+    // 🔥 এই লাইনটি ব্যবহার করুন, এটি স্ট্যাবল
+    browser: Browsers.macOS('Desktop'), 
+    markOnlineOnConnect: false,
+    syncFullHistory: false,
+    connectTimeoutMs: 60000,
+    defaultQueryTimeoutMs: 0, // সেশন টাইমআউট আটকাবে
+    keepAliveIntervalMs: 10000,
+    emitOwnEvents: true
+});
 
     activeSessions.set(tgUserId, sock);
 
