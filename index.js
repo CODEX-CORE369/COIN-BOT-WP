@@ -35,7 +35,7 @@ const toDxFont = (text) => {
         's': 's', 't': 'ᴛ', 'u': 'ᴜ', 'v': 'ᴠ', 'w': 'ᴡ', 'x': 'x', 'y': 'ʏ', 'z': 'ᴢ',
         'A': 'ᴀ', 'B': 'ʙ', 'C': 'ᴄ', 'D': 'ᴅ', 'E': 'ᴇ', 'F': 'ғ', 'G': 'ɢ', 'H': 'ʜ', 'I': 'ɪ',
         'J': 'ᴊ', 'K': 'ᴋ', 'L': 'ʟ', 'M': 'ᴍ', 'N': 'ɴ', 'O': 'ᴏ', 'P': 'ᴘ', 'Q': 'ǫ', 'R': 'ʀ',
-        'S': 's', 'T': 'ᴛ', 'U': 'ᴜ', 'V': 'ᴠ', 'W': 'ᴡ', 'X': 'x', 'Y': 'ʏ', 'Z': 'ᴢ'
+        'S': 's', 'T': 'ᴛ', 'U': 's', 'V': 'ᴠ', 'W': 'ᴡ', 'X': 'x', 'Y': 'ʏ', 'Z': 'ᴢ'
     };
     return text.split('').map(c => map[c] || c).join('');
 };
@@ -121,7 +121,7 @@ async function cleanSession(tgUserId) {
     await User.updateOne({ userId: tgUserId }, { waConnected: false });
 }
 
-// --- [ 🟢 WHATSAPP CORE & PAIRING SYSTEM ] ---
+// --- [ 🟢 WHATSAPP CORE & NEW PAIRING SYSTEM ] ---
 async function startWhatsAppSession(tgUserId, loginPhone, sudoPhone) {
     await cleanSession(tgUserId); // Always fresh start
     
@@ -136,31 +136,63 @@ async function startWhatsAppSession(tgUserId, loginPhone, sudoPhone) {
     const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
-    version,
-    logger: pino({ level: 'silent' }), 
-    printQRInTerminal: false,
-    auth: {
-        creds: state.creds,
-        keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }).child({ level: "fatal" })),
-    },
-    // 🔥 এই লাইনটি ব্যবহার করুন, এটি স্ট্যাবল
-    browser: Browsers.macOS('Desktop'), 
-    markOnlineOnConnect: false,
-    syncFullHistory: false,
-    connectTimeoutMs: 60000,
-    defaultQueryTimeoutMs: 0, // সেশন টাইমআউট আটকাবে
-    keepAliveIntervalMs: 10000,
-    emitOwnEvents: true
-});
+        version,
+        logger: pino({ level: 'silent' }), 
+        printQRInTerminal: false,
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }).child({ level: "fatal" })),
+        },
+        browser: ['Ubuntu', 'Chrome', '20.0.04'], 
+        markOnlineOnConnect: false,
+        syncFullHistory: false, // Critical for fast pairing
+        generateHighQualityLinkPreview: false,
+        connectTimeoutMs: 60000,
+        keepAliveIntervalMs: 15000,
+        emitOwnEvents: true,
+        retryRequestDelayMs: 2500
+    });
 
     activeSessions.set(tgUserId, sock);
 
-    // 🚀 Smart Pairing Code Requester
+    // 🚀 NEW SMART PAIRING ALGORITHM (From your app.js)
     if (!sock.authState.creds.registered) {
-        const pReq = setTimeout(async () => {
+        // waitForOpen Function
+        const waitForOpen = (timeoutMs = 20000) => {
+            return new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    sock.ev.off("connection.update", handler);
+                    reject(new Error("Timed out waiting for connection to open"));
+                }, timeoutMs);
+
+                const handler = (update) => {
+                    const { connection, lastDisconnect } = update || {};
+                    if (connection === "open") {
+                        clearTimeout(timeout);
+                        sock.ev.off("connection.update", handler);
+                        resolve();
+                    } else if (connection === "close") {
+                        clearTimeout(timeout);
+                        sock.ev.off("connection.update", handler);
+                        reject(lastDisconnect?.error || new Error("Connection closed before open"));
+                    }
+                };
+                sock.ev.on("connection.update", handler);
+            });
+        };
+
+        (async () => {
             try {
-                if(!activeSessions.has(tgUserId)) return; 
-                
+                try {
+                    // Wait for socket to stabilize before requesting
+                    await waitForOpen(10000); 
+                } catch (waitErr) {
+                    console.log(`⚠️ [${tgUserId}] waitForOpen warning: ${waitErr.message}`);
+                }
+
+                if (!activeSessions.has(tgUserId)) return;
+                if (!sock.requestPairingCode) throw new Error("Pairing not supported by this socket");
+
                 let code = await sock.requestPairingCode(cleanPhone);
                 let finalCode = code?.match(/.{1,4}/g)?.join('-') || code;
                 
@@ -175,11 +207,10 @@ async function startWhatsAppSession(tgUserId, loginPhone, sudoPhone) {
                 }).catch(()=>{});
                 
             } catch (err) {
-                bot.sendMessage(tgUserId, ui.error(`Pairing Failed (Rate Limit/Network). Try again later.`), { parse_mode: 'HTML' }).catch(()=>{});
+                bot.sendMessage(tgUserId, ui.error(`Pairing Failed: ${err.message}`), { parse_mode: 'HTML' }).catch(()=>{});
                 await cleanSession(tgUserId);
             }
-        }, 6000); // 🔥 FIX: Increased to 6 seconds to ensure WebSocket is fully connected before requesting code
-        pairingRequests.set(tgUserId, pReq);
+        })();
     }
 
     sock.ev.on('creds.update', saveCreds);
