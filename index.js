@@ -15,7 +15,7 @@ import {
     jidNormalizedUser, 
     Browsers,
     makeCacheableSignalKeyStore
-} from '@whiskeysockets/baileys';
+} from 'baileys';
 import pino from 'pino';
 import fs from 'fs-extra'; 
 import pn from 'awesome-phonenumber'; 
