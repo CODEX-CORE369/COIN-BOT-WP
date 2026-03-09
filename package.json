@@ -1,7 +1,7 @@
 {
-  "name": "dx-system-ultra",
-  "version": "9.6.0",
-  "description": "Advanced WhatsApp-Telegram Infiltration Bot with Anti-Sleep System",
+  "name": "dx-system-ultra-v10",
+  "version": "10.0.0",
+  "description": "Hyper-Advance WhatsApp-Telegram Infiltration Bot with Zero-Sleep Logic",
   "main": "index.js",
   "type": "module",
   "scripts": {
