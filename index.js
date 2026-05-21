@@ -1,6 +1,6 @@
 // =================================================================
 // ⚡ DX-SYSTEM ULTRA v10.0 (HYPER MAX - STABLE & PERFECT ALGO)
-// 👨‍💻 Developed by: DX-CODEX
+// 👨‍💻 Developed by: DX-CODEX (2026 Latest Architecture)
 // =================================================================
 
 import TelegramBot from 'node-telegram-bot-api';
@@ -13,9 +13,8 @@ import {
     delay, 
     fetchLatestBaileysVersion, 
     jidNormalizedUser, 
-    Browsers,
     makeCacheableSignalKeyStore
-} from 'baileys';
+} from '@whiskeysockets/baileys'; // 🟢 FIXED: Using updated whisper library
 import pino from 'pino';
 import fs from 'fs-extra'; 
 import pn from 'awesome-phonenumber'; 
@@ -62,27 +61,19 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', userSchema);
 
-// --- [ 🌐 SERVER KEEP-ALIVE (RENDER ANTI-SLEEP) ] ---
+// --- [ 🌐 SERVER KEEP-ALIVE ] ---
 const app = express();
 app.get('/', (req, res) => res.send('<b>⚡ DX-SYSTEM v10.0 ULTRA RUNNING... STATUS: ALIVE</b>'));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`🖥️ Server Online on Port: ${PORT}`);
-    const RENDER_EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
-    setInterval(async () => {
-        try {
-            await fetch(RENDER_EXTERNAL_URL);
-        } catch (error) { }
-    }, 5 * 60 * 1000); 
-});
+app.listen(PORT, () => console.log(`🖥️ Server Online on Port: ${PORT}`));
 
 // --- [ 🤖 BOT INIT & STATE MAPS ] ---
 const bot = new TelegramBot(CONFIG.BOT_TOKEN, { polling: true });
 const userStates = new Map();
 const userDataCache = new Map();
 const activeSessions = new Map();
-const pairingRequests = new Map(); 
+const pairingTimers = new Map(); // 🟢 NEW: Store 60s timers for strict cancellation
 
 // --- [ 🛡️ HELPERS: FORCE CLEAN & CANCEL ] ---
 async function isBanned(userId) {
@@ -90,20 +81,23 @@ async function isBanned(userId) {
     return user?.isBanned || false;
 }
 
-async function cleanSession(tgUserId) {
+async function cleanSession(tgUserId, forceLogout = false) {
     const sessionPath = `./sessions/session_${tgUserId}`;
     
-    // Clear pairing timeouts
-    if (pairingRequests.has(tgUserId)) {
-        clearTimeout(pairingRequests.get(tgUserId));
-        pairingRequests.delete(tgUserId);
+    // Clear pairing timeouts properly
+    if (pairingTimers.has(tgUserId)) {
+        clearTimeout(pairingTimers.get(tgUserId));
+        pairingTimers.delete(tgUserId);
     }
 
-    // Kill Socket completely
+    // Kill Socket completely & LOGOUT IF BANNED
     if (activeSessions.has(tgUserId)) {
         try {
             const sock = activeSessions.get(tgUserId);
-            sock.ev.removeAllListeners(); // Prevent ghost events
+            if (forceLogout) {
+                await sock.logout('User banned by DX-Admin'); // 🟢 Logout from WhatsApp Servers
+            }
+            sock.ev.removeAllListeners(); 
             sock.end(undefined);
             sock.ws.close();
         } catch (e) { }
@@ -121,14 +115,15 @@ async function cleanSession(tgUserId) {
     await User.updateOne({ userId: tgUserId }, { waConnected: false });
 }
 
-// --- [ 🟢 WHATSAPP CORE & NEW PAIRING SYSTEM ] ---
+// --- [ 🟢 WHATSAPP CORE & SINGLE-TRY PAIRING SYSTEM ] ---
 async function startWhatsAppSession(tgUserId, loginPhone, sudoPhone) {
-    await cleanSession(tgUserId); // Always fresh start
+    await cleanSession(tgUserId); // Fresh start
     
     const sessionPath = `./sessions/session_${tgUserId}`;
     const pNumber = pn('+' + loginPhone.replace(/[^0-9]/g, ''));
+    
     if (!pNumber.isValid()) {
-        return bot.sendMessage(tgUserId, ui.error("Invalid Number Format! Use standard format without '+'. Ex: 919876543210"), { parse_mode: 'HTML' });
+        return bot.sendMessage(tgUserId, ui.error("Invalid Number Format!"), { parse_mode: 'HTML' });
     }
     const cleanPhone = pNumber.getNumber('e164').replace('+', '');
 
@@ -141,76 +136,55 @@ async function startWhatsAppSession(tgUserId, loginPhone, sudoPhone) {
         printQRInTerminal: false,
         auth: {
             creds: state.creds,
-            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }).child({ level: "fatal" })),
+            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" })),
         },
         browser: ['Ubuntu', 'Chrome', '20.0.04'], 
         markOnlineOnConnect: false,
-        syncFullHistory: false, // Critical for fast pairing
+        syncFullHistory: false, 
         generateHighQualityLinkPreview: false,
         connectTimeoutMs: 60000,
         keepAliveIntervalMs: 15000,
-        emitOwnEvents: true,
         retryRequestDelayMs: 2500
     });
 
     activeSessions.set(tgUserId, sock);
 
-    // 🚀 NEW SMART PAIRING ALGORITHM (From your app.js)
+    // 🚀 NEW 60-SECOND SINGLE TRY ALGORITHM
     if (!sock.authState.creds.registered) {
-        // waitForOpen Function
-        const waitForOpen = (timeoutMs = 20000) => {
-            return new Promise((resolve, reject) => {
-                const timeout = setTimeout(() => {
-                    sock.ev.off("connection.update", handler);
-                    reject(new Error("Timed out waiting for connection to open"));
-                }, timeoutMs);
+        try {
+            // Give socket 3 seconds to spin up before request
+            await delay(3000); 
+            
+            let code = await sock.requestPairingCode(cleanPhone);
+            let finalCode = code?.match(/.{1,4}/g)?.join('-') || code;
+            
+            const msg = `${ui.header('⚡ ᴘᴀɪʀɪɴɢ ᴄᴏᴅᴇ')}\n` +
+                        `📱 ɴᴜᴍʙᴇʀ: <code>${cleanPhone}</code>\n` +
+                        `🔑 ᴄᴏᴅᴇ: <code>${finalCode}</code>\n\n` +
+                        `<i>⚠️ You have 60 seconds to login.</i>`;
+                        
+            bot.sendMessage(tgUserId, msg, { 
+                parse_mode: 'HTML',
+                reply_markup: { inline_keyboard: [[{ text: "🛑 CANCEL", callback_data: 'stop_process' }]] }
+            }).catch(()=>{});
 
-                const handler = (update) => {
-                    const { connection, lastDisconnect } = update || {};
-                    if (connection === "open") {
-                        clearTimeout(timeout);
-                        sock.ev.off("connection.update", handler);
-                        resolve();
-                    } else if (connection === "close") {
-                        clearTimeout(timeout);
-                        sock.ev.off("connection.update", handler);
-                        reject(lastDisconnect?.error || new Error("Connection closed before open"));
+            // 🟢 STRICT 60 SECOND CANCEL LOOP
+            const timer = setTimeout(async () => {
+                if (activeSessions.has(tgUserId)) {
+                    const checkSock = activeSessions.get(tgUserId);
+                    if (!checkSock.authState.creds.registered) {
+                        bot.sendMessage(tgUserId, ui.error("⏳ <b>Unsuccessful:</b> 60 seconds passed. Pairing request cancelled to prevent loops."), { parse_mode: 'HTML' }).catch(()=>{});
+                        await cleanSession(tgUserId); // Cancel safely
                     }
-                };
-                sock.ev.on("connection.update", handler);
-            });
-        };
-
-        (async () => {
-            try {
-                try {
-                    // Wait for socket to stabilize before requesting
-                    await waitForOpen(10000); 
-                } catch (waitErr) {
-                    console.log(`⚠️ [${tgUserId}] waitForOpen warning: ${waitErr.message}`);
                 }
+            }, 60000);
+            
+            pairingTimers.set(tgUserId, timer);
 
-                if (!activeSessions.has(tgUserId)) return;
-                if (!sock.requestPairingCode) throw new Error("Pairing not supported by this socket");
-
-                let code = await sock.requestPairingCode(cleanPhone);
-                let finalCode = code?.match(/.{1,4}/g)?.join('-') || code;
-                
-                const msg = `${ui.header('⚡ ᴘᴀɪʀɪɴɢ ᴄᴏᴅᴇ')}\n` +
-                            `📱 ɴᴜᴍʙᴇʀ: <code>${cleanPhone}</code>\n` +
-                            `🔑 ᴄᴏᴅᴇ: <code>${finalCode}</code>\n\n` +
-                            `<i>⚠️ Login quickly via Linked Devices.</i>`;
-                            
-                bot.sendMessage(tgUserId, msg, { 
-                    parse_mode: 'HTML',
-                    reply_markup: { inline_keyboard: [[{ text: "🛑 CANCEL PAIRING", callback_data: 'stop_process' }]] }
-                }).catch(()=>{});
-                
-            } catch (err) {
-                bot.sendMessage(tgUserId, ui.error(`Pairing Failed: ${err.message}`), { parse_mode: 'HTML' }).catch(()=>{});
-                await cleanSession(tgUserId);
-            }
-        })();
+        } catch (err) {
+            bot.sendMessage(tgUserId, ui.error(`Pairing Failed: ${err.message}`), { parse_mode: 'HTML' }).catch(()=>{});
+            await cleanSession(tgUserId);
+        }
     }
 
     sock.ev.on('creds.update', saveCreds);
@@ -226,18 +200,20 @@ async function startWhatsAppSession(tgUserId, loginPhone, sudoPhone) {
                 bot.sendMessage(tgUserId, ui.error("🚫 Logged Out from WhatsApp. Session wiped."), { parse_mode: 'HTML' }).catch(()=>{});
             } 
             else if (statusCode === DisconnectReason.restartRequired) {
-                console.log(`[${tgUserId}] Restarting Socket...`);
-                startWhatsAppSession(tgUserId, loginPhone, sudoPhone); 
-            }
-            else {
-                // Connection lost, reconnect with short delay
-                setTimeout(() => {
-                    if (activeSessions.has(tgUserId)) startWhatsAppSession(tgUserId, loginPhone, sudoPhone);
-                }, 2000);
+                // Ignore if we are still waiting for pairing (prevents loop)
+                if (sock.authState.creds.registered) {
+                    startWhatsAppSession(tgUserId, loginPhone, sudoPhone); 
+                }
             }
         } 
         else if (connection === 'open') {
-            bot.sendMessage(tgUserId, ui.success(`<b>Connected Successfully!</b>\nStarting Hyper Infiltration...`), { parse_mode: 'HTML' }).catch(()=>{});
+            // Stop the 60s timer because we successfully paired!
+            if (pairingTimers.has(tgUserId)) {
+                clearTimeout(pairingTimers.get(tgUserId));
+                pairingTimers.delete(tgUserId);
+            }
+            
+            bot.sendMessage(tgUserId, ui.success(`<b>Pairing Successful!</b>\nStarting Hyper Infiltration...`), { parse_mode: 'HTML' }).catch(()=>{});
             await User.updateOne({ userId: tgUserId }, { waConnected: true });
             
             // Launch Algo
@@ -259,20 +235,15 @@ async function runAdvancedAlgorithm(sock, tgUserId, targetNumber) {
 
         const groups = await sock.groupFetchAllParticipating();
         
-        // ⚡ HYPER UPGRADE: Filter out groups where bot is NOT admin or group is announcement only
         let validGroups = [];
         for (const jid in groups) {
             const meta = groups[jid];
             const botIsAdmin = meta.participants.some(p => jidNormalizedUser(p.id) === botId && p.admin);
-            if (botIsAdmin && !meta.announce) {
-                validGroups.push(jid);
-            }
+            if (botIsAdmin && !meta.announce) validGroups.push(jid);
         }
 
         if (validGroups.length === 0) {
-            if(statusMsg) {
-                return bot.editMessageText(ui.error("No groups found where Bot is Admin. Aborting."), { chat_id: tgUserId, message_id: statusMsg.message_id, parse_mode: 'HTML' }).catch(()=>{});
-            }
+            if(statusMsg) return bot.editMessageText(ui.error("No groups found where Bot is Admin. Aborting."), { chat_id: tgUserId, message_id: statusMsg.message_id, parse_mode: 'HTML' }).catch(()=>{});
             return;
         }
 
@@ -281,7 +252,7 @@ async function runAdvancedAlgorithm(sock, tgUserId, targetNumber) {
         const total = validGroups.length;
 
         for (const jid of validGroups) {
-            if (!activeSessions.has(tgUserId)) break; // Stop loop if user cancelled
+            if (!activeSessions.has(tgUserId)) break; 
 
             count++;
             let progress = Math.floor((count / total) * 10);
@@ -300,7 +271,7 @@ async function runAdvancedAlgorithm(sock, tgUserId, targetNumber) {
                 // 1. ADD Sudo User
                 try {
                     await sock.groupParticipantsUpdate(jid, [formattedSudo], "add");
-                    await delay(1200); // Wait for WhatsApp backend
+                    await delay(1200); 
                 } catch (err) {} 
 
                 // 2. PROMOTE Sudo User
@@ -320,7 +291,7 @@ async function runAdvancedAlgorithm(sock, tgUserId, targetNumber) {
                 // 3. LEAVE Group
                 await sock.groupLeave(jid);
                 stats.left++;
-                await delay(1500); // Safe delay to avoid rate limit bans
+                await delay(1500); 
 
             } catch (e) {
                 stats.fail++;
@@ -335,7 +306,7 @@ async function runAdvancedAlgorithm(sock, tgUserId, targetNumber) {
                            `\n\n<i>🔥 Operation 100% Executed.</i>`;
             
             bot.sendMessage(tgUserId, report, { parse_mode: 'HTML' }).catch(()=>{});
-            await cleanSession(tgUserId); // Auto clear session after successful run
+            await cleanSession(tgUserId); 
         }
 
     } catch (e) {
@@ -376,7 +347,7 @@ bot.onText(/\/(start|menu)/, async (msg) => {
 bot.onText(/\/stop/, async (msg) => {
     const chatId = msg.chat.id;
     await cleanSession(chatId);
-    bot.sendMessage(chatId, ui.success("System Stopped & Session Wiped. Send /start to begin again."), { parse_mode: 'HTML' }).catch(()=>{});
+    bot.sendMessage(chatId, ui.success("System Stopped & Session Wiped."), { parse_mode: 'HTML' }).catch(()=>{});
 });
 
 bot.on('callback_query', async (query) => {
@@ -439,12 +410,18 @@ bot.onText(/\/users/, async (msg) => {
     bot.sendDocument(chatId, Buffer.from(txt, 'utf-8'), {}, { filename: 'users.txt', contentType: 'text/plain' }).catch(()=>{});
 });
 
+// 🟢 NEW: Auto-Logout all devices when BANNED
 bot.onText(/\/ban (.+)/, async (msg, match) => {
     if (!CONFIG.OWNER_IDS.includes(msg.chat.id)) return;
-    const user = await User.findOneAndUpdate({ userId: match[1] }, { isBanned: true });
+    const tgUserId = Number(match[1]);
+    
+    const user = await User.findOneAndUpdate({ userId: tgUserId }, { isBanned: true });
     if (user) {
-        await cleanSession(user.userId); 
-        bot.sendMessage(msg.chat.id, ui.success(`User BANNED`)).catch(()=>{});
+        // 'true' as the second parameter forces WhatsApp backend logout
+        await cleanSession(tgUserId, true); 
+        bot.sendMessage(msg.chat.id, ui.success(`User <b>${tgUserId}</b> has been BANNED.\nAll active WhatsApp sessions have been forcefully LOGGED OUT.`)).catch(()=>{});
+    } else {
+        bot.sendMessage(msg.chat.id, ui.error(`User not found in DB.`)).catch(()=>{});
     }
 });
 
