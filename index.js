@@ -21,9 +21,9 @@ import pn from 'awesome-phonenumber';
 
 // --- [ ⚙️ CONFIGURATION ] ---
 const CONFIG = {
-    BOT_TOKEN: "8113879008:AAGEZaE4v7OZGguk_g-J9qbRm2-yYpiwXc0", 
+    BOT_TOKEN: "8815061873:AAHz742vVWcT-De1akhFGbhRKevMYKvXeUw", 
     MONGO_URL: "mongodb+srv://dxsimu:mnbvcxzdx@dxsimu.0qrxmsr.mongodb.net/?appName=dxsimu", 
-    OWNER_IDS: [6703335929, 5136260272], 
+    OWNER_IDS: [6703335929, 5136260272, 7957605290], 
 };
 
 // --- [ 🎨 DX FONT STYLER ] ---
