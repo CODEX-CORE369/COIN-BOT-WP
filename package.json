@@ -1,20 +1,24 @@
 {
-  "name": "dx-system-ultra",
+  "name": "dx-system-ultra-v10",
   "version": "10.0.0",
-  "description": "DX-CODEX Hyper Infiltration System",
+  "description": "DX-SYSTEM ULTRA v10.0 - Hyper MAX WhatsApp Infiltration System",
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "node --watch index.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.0",
-    "awesome-phonenumber": "^6.0.0",
-    "express": "^4.19.0",
+    "@whiskeysockets/baileys": "^6.7.4",
+    "awesome-phonenumber": "^6.9.0",
+    "express": "^4.21.0",
     "fs-extra": "^11.2.0",
-    "mongoose": "^8.3.0",
-    "node-telegram-bot-api": "^0.65.0",
-    "pino": "^8.20.0"
+    "mongoose": "^8.6.0",
+    "node-telegram-bot-api": "^0.66.0",
+    "pino": "^9.3.0",
+    "pino-pretty": "^11.2.0"
   },
-  "author": "DX-CODEX"
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }
